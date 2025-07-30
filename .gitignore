@@ -1,0 +1,36 @@
+# Environment variables
+.env
+
+# Virtual environments
+venv/
+*/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Output files
+*.json
+*.csv
+*.md
+!README.md
+!CLAUDE.md
+!.env.example
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
