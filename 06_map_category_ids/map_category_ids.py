@@ -9,7 +9,8 @@ Funcionalidad:
 - Conecta con la API de VTEX usando credenciales desde archivo .env local
 - Descarga árbol completo de categorías del catálogo VTEX
 - Normaliza nombres eliminando acentos y convirtiendo a minúsculas para matching robusto
-- Procesa campo "Categoría" con formato jerárquico: "Departamento>Categoria>SubCategoria"
+- Procesa campo "CategoryPath" con formato jerárquico: "Departamento>Categoria>SubCategoria"
+- Convierte formato de salida: "/" existentes → "-", primeros dos ">" → "/"
 - Asigna IDs correspondientes:
   * DepartmentId: ID del departamento VTEX
   * CategoryId: ID de subcategoría si existe, sino ID de categoría, sino DepartmentId
@@ -23,17 +24,17 @@ Lógica de Mapeo:
 - Si no existe departamento → CategoryId = null
 
 Ejecución:
-    # Mapeo básico con endpoint por defecto
+    # Mapeo básico (usa variables del .env automáticamente)
     python3 map_category_ids.py input.json output.json --indent 4
     
-    # Con endpoint personalizado
-    python3 map_category_ids.py data.json categorized.json --endpoint vtexcommercestable --indent 4
+    # Con endpoint personalizado si es necesario
+    python3 map_category_ids.py data.json categorized.json --endpoint https://custom.vtexcommercestable.com.br/api/catalog_system/pub/category/tree/2/
 
 Ejemplo:
-    python3 map_category_ids/map_category_ids.py productos.json productos_categorized.json --endpoint vtexcommercestable
+    python3 map_category_ids/map_category_ids.py productos.json productos_categorized.json
 
 Archivos requeridos:
-- .env en la raíz del proyecto con X-VTEX-API-AppKey y X-VTEX-API-AppToken
+- .env en la raíz del proyecto con X-VTEX-API-AppKey, X-VTEX-API-AppToken, VTEX_ACCOUNT_NAME y VTEX_ENVIRONMENT
 """
 import argparse
 import json
@@ -49,12 +50,18 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 env_path = os.path.join(project_root, '.env')
 load_dotenv(dotenv_path=env_path)
 
-# Leer credenciales VTEX
+# Leer credenciales y configuración VTEX
 trex_app_key = os.getenv('X-VTEX-API-AppKey')
 trex_app_token = os.getenv('X-VTEX-API-AppToken')
+vtex_account_name = os.getenv('VTEX_ACCOUNT_NAME')
+vtex_environment = os.getenv('VTEX_ENVIRONMENT', 'vtexcommercestable')
 
 if not trex_app_key or not trex_app_token:
     print("Debe definir X-VTEX-API-AppKey y X-VTEX-API-AppToken en el archivo .env", file=sys.stderr)
+    sys.exit(1)
+
+if not vtex_account_name:
+    print("Debe definir VTEX_ACCOUNT_NAME en el archivo .env", file=sys.stderr)
     sys.exit(1)
 
 HEADERS = {
@@ -64,13 +71,19 @@ HEADERS = {
 }
 
 
-def normalize(text):
+def normalize(text, debug=False):
     """Elimina acentos y convierte a minúsculas."""
     if not text:
         return ''
+    original = text
     nfkd = unicodedata.normalize('NFKD', text)
     without_accents = ''.join([c for c in nfkd if unicodedata.category(c) != 'Mn'])
-    return without_accents.lower().strip()
+    normalized = without_accents.lower().strip()
+    
+    if debug and original != normalized:
+        print(f"  📝 Normalización: '{original}' → '{normalized}'")
+    
+    return normalized
 
 
 def build_tree_map(tree):
@@ -157,34 +170,6 @@ def generate_log_report(log_data, output_file):
         f.write(f"- **Fallidos:** {total_failed} ({unique_failed} rutas únicas)\n")
         f.write(f"- **Tasa de éxito:** {(total_successful/total_processed*100):.1f}%\n\n")
         
-        # Categorías exitosas agrupadas por departamento
-        f.write(f"## ✅ Categorías Encontradas ({unique_successful} rutas únicas)\n\n")
-        if successful_unique:
-            # Agrupar por departamento
-            by_dept = {}
-            for path, data in successful_unique.items():
-                dept = data['department'] or 'Sin Departamento'
-                if dept not in by_dept:
-                    by_dept[dept] = []
-                by_dept[dept].append((path, data))
-            
-            for dept, items in sorted(by_dept.items()):
-                f.write(f"### {dept}\n\n")
-                for path, data in sorted(items):
-                    cat = data['category'] or ''
-                    subcat = data['subcategory'] or ''
-                    count_info = f" *(×{data['count']})*" if data['count'] > 1 else ""
-                    
-                    if subcat:
-                        f.write(f"- **{cat}** → {subcat}{count_info}\n")
-                    elif cat:
-                        f.write(f"- **{cat}**{count_info}\n")
-                    else:
-                        f.write(f"- Solo departamento{count_info}\n")
-                f.write("\n")
-        else:
-            f.write("*No hay categorías exitosas.*\n\n")
-        
         # Errores agrupados por tipo
         f.write(f"## ❌ Errores Encontrados ({unique_failed} rutas únicas)\n\n")
         if failed_unique:
@@ -227,8 +212,11 @@ def map_ids_to_records(records, tree_map):
         'failed': []
     }
     
-    for rec in records:
-        cat_path = rec.get('Categoría', '')
+    print(f"\n🔄 Procesando {len(records)} registros...")
+    processed_categories = set()
+    
+    for i, rec in enumerate(records, 1):
+        cat_path = rec.get('CategoryPath', rec.get('Categoría', ''))  # Soporte para ambos nombres
         parts = [p.strip() for p in cat_path.split('>') if p.strip()]
         dept_id = None
         cat_id = None
@@ -242,32 +230,52 @@ def map_ids_to_records(records, tree_map):
             'subcategory_found': False
         }
         
+        # Mostrar progreso y nueva categoría solo si no se ha procesado antes
+        if cat_path and cat_path not in processed_categories:
+            print(f"\n📋 [{i}/{len(records)}] Procesando categoría: '{cat_path}'")
+            if len(parts) > 1:
+                hierarchy = " > ".join([f"'{part}'" for part in parts])
+                print(f"  🌳 Jerarquía detectada: {hierarchy}")
+            processed_categories.add(cat_path)
+        
         if parts:
             # Departamento
-            d_norm = normalize(parts[0])
+            d_norm = normalize(parts[0], debug=cat_path not in processed_categories)
             mapping_status['department'] = parts[0]
             dept_entry = tree_map.get(d_norm)
             if dept_entry:
                 dept_id = dept_entry['id']
                 mapping_status['department_found'] = True
+                if cat_path not in processed_categories:
+                    print(f"  ✅ Departamento encontrado: ID {dept_id}")
                 
                 if len(parts) > 1:
                     # Categoría
-                    c_norm = normalize(parts[1])
+                    c_norm = normalize(parts[1], debug=cat_path not in processed_categories)
                     mapping_status['category'] = parts[1]
                     cat_entry = dept_entry['children'].get(c_norm)
                     if cat_entry:
                         mapping_status['category_found'] = True
                         cat_id = cat_entry['id']
+                        if cat_path not in processed_categories:
+                            print(f"  ✅ Categoría encontrada: ID {cat_id}")
                         
                         if len(parts) > 2:
                             # Subcategoría
-                            s_norm = normalize(parts[2])
+                            s_norm = normalize(parts[2], debug=cat_path not in processed_categories)
                             mapping_status['subcategory'] = parts[2]
                             sub_id = cat_entry['children'].get(s_norm)
                             if sub_id:
                                 mapping_status['subcategory_found'] = True
                                 cat_id = sub_id
+                                if cat_path not in processed_categories:
+                                    print(f"  ✅ Subcategoría encontrada: ID {cat_id}")
+                            elif cat_path not in processed_categories:
+                                print(f"  ❌ Subcategoría '{parts[2]}' no encontrada")
+                    elif cat_path not in processed_categories:
+                        print(f"  ❌ Categoría '{parts[1]}' no encontrada")
+            elif cat_path not in processed_categories:
+                print(f"  ❌ Departamento '{parts[0]}' no encontrado")
         
         # Ajuste final de lógica:
         if dept_id is not None and cat_id is None:
@@ -290,10 +298,36 @@ def map_ids_to_records(records, tree_map):
         else:
             log_data['successful'].append(mapping_status)
         
+        # Renombrar/actualizar campo CategoryPath y agregar IDs
+        if 'Categoría' in rec:
+            category_path_value = rec.pop('Categoría')  # Renombrar si existe el campo antiguo
+        else:
+            category_path_value = cat_path  # Usar el valor procesado
+        
+        # Reemplazar "/" existentes por "-" y luego los dos primeros ">" con "/"
+        if category_path_value:
+            # Paso 1: Reemplazar cualquier "/" existente por "-"
+            category_path_value = category_path_value.replace('/', '-')
+            
+            # Paso 2: Dividir por ">" y reconstruir con "/" para los dos primeros separadores
+            path_parts = category_path_value.split('>')
+            if len(path_parts) >= 2:
+                # Primer separador: Departamento/Categoría
+                formatted_path = path_parts[0] + '/' + path_parts[1]
+                # Segundo separador si existe: Departamento/Categoría/Subcategoría
+                if len(path_parts) >= 3:
+                    formatted_path += '/' + path_parts[2]
+                # Mantener ">" para separadores adicionales si los hay
+                if len(path_parts) > 3:
+                    formatted_path += '>' + '>'.join(path_parts[3:])
+                category_path_value = formatted_path
+        
+        rec['CategoryPath'] = category_path_value
         rec['DepartmentId'] = dept_id
         rec['CategoryId'] = cat_id
         mapped.append(rec)
     
+    print(f"\n✅ Procesamiento completado: {len(log_data['successful'])} exitosos, {len(log_data['failed'])} fallidos")
     return mapped, log_data
 
 
@@ -301,17 +335,28 @@ def main():
     parser = argparse.ArgumentParser(description='Mapea DepartmentId y CategoryId para productos VTEX')
     parser.add_argument('input_file', help='Archivo JSON de entrada con lista de productos')
     parser.add_argument('output_file', help='Archivo JSON de salida con IDs agregados')
-    parser.add_argument('--endpoint', default='https://homesentry.vtexcommercestable.com.br/api/catalog_system/pub/category/tree/2/',
+    # Construir endpoint por defecto usando variables de entorno
+    default_endpoint = f'https://{vtex_account_name}.{vtex_environment}.com.br/api/catalog_system/pub/category/tree/2/'
+    parser.add_argument('--endpoint', default=default_endpoint,
                         help='Endpoint VTEX para categoría')
     parser.add_argument('--indent', type=int, default=4,
                         help='Nivel de indentación para el JSON de salida')
     args = parser.parse_args()
 
     # 1. Obtener árbol de categorías
+    print(f"🌐 Descargando árbol de categorías desde: {args.endpoint}")
     tree = fetch_category_tree(args.endpoint)
+    print(f"📊 Árbol descargado: {len(tree)} departamentos encontrados")
 
     # 2. Construir mapeo
+    print("🗺️  Construyendo mapeo de categorías...")
     tree_map = build_tree_map(tree)
+    total_categories = sum(len(dept['children']) for dept in tree_map.values())
+    total_subcategories = sum(
+        len(cat['children']) for dept in tree_map.values() 
+        for cat in dept['children'].values()
+    )
+    print(f"📋 Mapeo completado: {len(tree_map)} departamentos, {total_categories} categorías, {total_subcategories} subcategorías")
 
     # 3. Leer datos de entrada
     try:

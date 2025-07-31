@@ -10,7 +10,7 @@ Funcionalidad:
 - Utiliza separador ">" para crear jerarquía: "CATEGORIA>SUBCATEGORIA>LINEA"
 - Elimina campos originales después de la unión
 - Detecta elementos problemáticos con "/" en SUBCATEGORIA o LINEA
-- Exporta elementos problemáticos a CSV para revisión manual
+- Exporta elementos problemáticos a JSON y CSV automáticamente para revisión manual
 - Elimina duplicados en exportación CSV basado en campos problemáticos
 
 Transformación:
@@ -23,8 +23,11 @@ Ejecución:
     # Transformación básica
     python3 transform_json_category.py input.json output.json --indent 4
     
-    # Con exportación CSV de elementos problemáticos
+    # Con exportación CSV personalizada de elementos problemáticos
     python3 transform_json_category.py input.json output.json --csv-export problemas.csv
+    
+    # Exportación automática (genera archivos _problematicos.json y _problematicos.csv)
+    python3 transform_json_category.py input.json output.json
 
 Ejemplo:
     python3 transform_json_category/transform_json_category.py productos.json productos_categorizados.json --csv-export subcategorias_problematicas.csv
@@ -43,6 +46,7 @@ def transform(input_path, output_path, indent, csv_output_path=None):
     """
     Lee un archivo JSON de entrada, une los campos CATEGORIA, SUBCATEGORIA y LINEA,
     y escribe un nuevo JSON de salida con indentación de espacios según parámetro.
+    También exporta todos los datos transformados a CSV.
     Si se especifica csv_output_path, exporta a CSV los elementos donde SUBCATEGORIA contenga '/'.
     """
     with open(input_path, 'r', encoding='utf-8') as f:
@@ -89,9 +93,20 @@ def transform(input_path, output_path, indent, csv_output_path=None):
         json.dump(result, f, ensure_ascii=False, indent=indent)
         f.write("\n")
     
-    # Exportar a CSV si se especificó la ruta y hay elementos que exportar
-    if csv_output_path and csv_export_items:
-        export_to_csv(csv_export_items, csv_output_path)
+    # Exportar elementos problemáticos a JSON y CSV si hay elementos que exportar
+    if csv_export_items:
+        # Exportar a JSON
+        problematic_json_path = output_path.rsplit('.', 1)[0] + '_problematicos.json'
+        with open(problematic_json_path, 'w', encoding='utf-8') as f:
+            json.dump(csv_export_items, f, ensure_ascii=False, indent=indent)
+            f.write("\n")
+        
+        # Exportar a CSV (usar csv_output_path si se especificó, sino generar automáticamente)
+        if csv_output_path:
+            export_to_csv(csv_export_items, csv_output_path)
+        else:
+            problematic_csv_path = output_path.rsplit('.', 1)[0] + '_problematicos.csv'
+            export_to_csv(csv_export_items, problematic_csv_path)
 
 
 def export_to_csv(items, csv_path):

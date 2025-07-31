@@ -10,7 +10,7 @@ Funcionalidad:
 - Carga archivo de marcas local (marcas.json) con mapeo SKU → Marca
 - Busca BrandId para cada producto basado en RefId → SKU → Marca → BrandId
 - Asigna BrandId correspondiente a cada producto en el dataset
-- Exporta productos sin BrandId encontrado a CSV para revisión manual
+- Exporta productos sin BrandId encontrado a CSV para revisión manual (incluye campo Marca)
 - Genera archivo final con todos los productos procesados
 
 Flujo de Mapeo:
@@ -20,17 +20,20 @@ Flujo de Mapeo:
 4. BrandId encontrado → asigna al producto, sino → BrandId = null
 
 Ejecución:
-    # Mapeo básico
-    python3 vtex_brandid_matcher.py marcas.json data.json --account ACCOUNT_NAME
+    # Mapeo básico (usa configuración del .env automáticamente)
+    python3 vtex_brandid_matcher.py marcas.json data.json
     
     # Con archivos de salida personalizados
-    python3 vtex_brandid_matcher.py marcas.json data.json --account ACCOUNT_NAME --output_json final.json --output_csv faltantes.csv
+    python3 vtex_brandid_matcher.py marcas.json data.json --output_json final.json --output_csv faltantes.csv
+    
+    # Con configuración personalizada (sobrescribe .env)
+    python3 vtex_brandid_matcher.py marcas.json data.json --account ACCOUNT_NAME --env vtexcommercestable
 
 Ejemplo:
-    python3 vtex_brandid_matcher/vtex_brandid_matcher.py marcas.json productos.json --account homesentry
+    python3 vtex_brandid_matcher/vtex_brandid_matcher.py marcas.json productos.json
 
 Archivos requeridos:
-- .env en la raíz del proyecto con X-VTEX-API-AppKey y X-VTEX-API-AppToken
+- .env en la raíz del proyecto con X-VTEX-API-AppKey, X-VTEX-API-AppToken, VTEX_ACCOUNT_NAME y VTEX_ENVIRONMENT
 - marcas.json: archivo con mapeo de SKU a nombre de marca
 """
 import json
@@ -51,16 +54,25 @@ parser.add_argument('marcas_file', help='Archivo JSON con las marcas (marcas.jso
 parser.add_argument('data_file', help='Archivo JSON con los datos (data.json)')
 parser.add_argument('--output_json', default='data_brandid.json', help='Archivo de salida JSON con identación de 4 espacios')
 parser.add_argument('--output_csv', default='no_brandid_found.csv', help='Archivo CSV de elementos sin BrandId')
-parser.add_argument('--account', required=True, help='Nombre de cuenta de VTEX')
-parser.add_argument('--env', default='vtexcommercestable', help='Ambiente de VTEX (por defecto: vtexcommercestable)')
+parser.add_argument('--account', help='Nombre de cuenta de VTEX (opcional, usa VTEX_ACCOUNT_NAME del .env)')
+parser.add_argument('--env', help='Ambiente de VTEX (opcional, usa VTEX_ENVIRONMENT del .env)')
 args = parser.parse_args()
 
-# Leer AppKey y AppToken desde el .env
+# Leer credenciales y configuración VTEX desde el .env
 app_key = os.getenv('X-VTEX-API-AppKey')
 app_token = os.getenv('X-VTEX-API-AppToken')
+vtex_account_name = os.getenv('VTEX_ACCOUNT_NAME')
+vtex_environment = os.getenv('VTEX_ENVIRONMENT', 'vtexcommercestable')
 
 if not app_key or not app_token:
     raise ValueError("X-VTEX-API-AppKey o X-VTEX-API-AppToken no definidos en .env")
+
+if not vtex_account_name:
+    raise ValueError("VTEX_ACCOUNT_NAME no definido en .env")
+
+# Usar valores del .env o argumentos como fallback
+account_name = args.account or vtex_account_name
+environment = args.env or vtex_environment
 
 # Headers para la autenticación
 headers = {
@@ -70,7 +82,7 @@ headers = {
 }
 
 # Endpoint VTEX
-brand_url = f"https://{args.account}.{args.env}.com.br/api/catalog_system/pvt/brand/list"
+brand_url = f"https://{account_name}.{environment}.com.br/api/catalog_system/pvt/brand/list"
 
 # Obtener marcas de VTEX
 response = requests.get(brand_url, headers=headers)
@@ -100,10 +112,16 @@ for item in data:
         brand_id = brand_name_to_id.get(marca_nombre)
         item['BrandId'] = brand_id if brand_id is not None else None
         if brand_id is None:
-            no_brandid.append(item)
+            # Agregar marca para CSV
+            item_with_marca = item.copy()
+            item_with_marca['Marca'] = marca_nombre
+            no_brandid.append(item_with_marca)
     else:
         item['BrandId'] = None
-        no_brandid.append(item)
+        # Agregar indicador de marca no encontrada para CSV
+        item_with_marca = item.copy()
+        item_with_marca['Marca'] = 'NO_ENCONTRADA'
+        no_brandid.append(item_with_marca)
 
 # Guardar archivo de salida con identación 4 espacios
 with open(args.output_json, 'w', encoding='utf-8') as f:

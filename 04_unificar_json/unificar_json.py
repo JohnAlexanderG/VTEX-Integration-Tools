@@ -13,6 +13,7 @@ Funcionalidad:
 - Actualiza registros existentes con información nueva
 - Preserva registros únicos de ambos datasets
 - Aplica transformaciones de formato y normalización de nombres
+- Exporta registros no unificados a CSV para revisión manual
 
 Lógica de Unificación:
 1. **Registros Comunes** (SKU existe en ambos archivos):
@@ -25,12 +26,12 @@ Lógica de Unificación:
 2. **Registros Solo en Archivo Nuevo** (MECA no existe en archivo antiguo):
    - Crea registro mínimo con RefId, Categoría formateada, Name y Description vacía
 
-3. **Registros Solo en Archivo Antiguo**: Se descartan (no aparecen en resultado)
+3. **Registros Solo en Archivo Antiguo**: Se exportan a CSV para revisión manual
 
 Transformaciones Aplicadas:
 - Formato Title Case: "cuidado personal>cuidado del pelo" → "Cuidado Personal>Cuidado Del Pelo"
 - Normalización de campos: SKU → RefId, Descripción → Description
-- Adición de campos: Name desde DESCRIPCION
+- Adición de campos: Name desde DESCRIPCION (formateado de UPPERCASE a camelCase)
 
 Ejecución:
     python3 unificar_json.py old_data.json new_data.json output.json
@@ -41,6 +42,7 @@ Ejemplo:
 
 import json
 import sys
+import csv
 
 from pathlib import Path
 
@@ -68,6 +70,46 @@ def format_categoria(cat: str) -> str:
     """
     return ">".join(title_case_segment(seg) for seg in cat.split(">"))
 
+def format_descripcion(descripcion: str) -> str:
+    """
+    Convierte texto de UPPERCASE a formato camelCase conservando espacios.
+    
+    Args:
+        descripcion: Texto en UPPERCASE
+        
+    Returns:
+        Texto formateado en camelCase con espacios preservados
+    """
+    if not descripcion:
+        return descripcion
+    
+    # Convertir a lowercase y luego capitalizar solo la primera letra de cada palabra
+    return " ".join(word.capitalize() for word in descripcion.lower().split())
+
+def export_to_csv(items, csv_path):
+    """
+    Exporta una lista de elementos JSON a un archivo CSV.
+    
+    Args:
+        items: Lista de diccionarios a exportar
+        csv_path: Ruta del archivo CSV de salida
+    """
+    if not items:
+        return
+    
+    # Obtener todas las claves únicas de todos los elementos
+    all_keys = set()
+    for item in items:
+        all_keys.update(item.keys())
+    
+    # Ordenar las claves para tener un orden consistente
+    fieldnames = sorted(all_keys)
+    
+    with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(items)
+
 def main(old_path: str, new_path: str, out_path: str):
     """
     Función principal que unifica los dos archivos JSON.
@@ -85,6 +127,7 @@ def main(old_path: str, new_path: str, out_path: str):
     new_map = {item['MECA']: item for item in new_data}
     old_map = {item['SKU']: item for item in old_data}
     result = []
+    no_unificados = []
 
     # Procesar registros comunes y actualizar
     for sku, old_rec in old_map.items():
@@ -94,15 +137,17 @@ def main(old_path: str, new_path: str, out_path: str):
             merged['RefId'] = sku
             # Actualizar categoría con formato Title Case
             merged['Categoría'] = format_categoria(upd['CATEGORIA'])
-            # Agregar campo Name desde DESCRIPCION del archivo nuevo
-            merged['Name'] = upd['DESCRIPCION']
+            # Agregar campo Name desde DESCRIPCION del archivo nuevo (formateado)
+            merged['Name'] = format_descripcion(upd['DESCRIPCION'])
             # Renombrar Descripción a Description manteniendo el valor del archivo viejo
             if 'Descripción' in merged:
                 merged['Description'] = merged.pop('Descripción')
             # Eliminar campo SKU original
             merged.pop('SKU', None)
             result.append(merged)
-        # Si no existe en new_map, lo omitimos (se descarta)
+        else:
+            # Si no existe en new_map, agregarlo a la lista de no unificados
+            no_unificados.append(old_rec)
 
     # Incluir nuevos registros no presentes en old_data
     for meca, new_rec in new_map.items():
@@ -110,7 +155,7 @@ def main(old_path: str, new_path: str, out_path: str):
             minimal = {
                 'RefId': meca,
                 'Categoría': format_categoria(new_rec['CATEGORIA']),
-                'Name': new_rec['DESCRIPCION'],
+                'Name': format_descripcion(new_rec['DESCRIPCION']),
                 'Description': ''
             }
             result.append(minimal)
@@ -118,6 +163,12 @@ def main(old_path: str, new_path: str, out_path: str):
     # Escribir JSON de salida con indentación de 4 espacios
     Path(out_path).write_text(json.dumps(result, ensure_ascii=False, indent=4), encoding='utf-8')
     print(f"Archivo unificado generado: {out_path} ({len(result)} registros)")
+    
+    # Exportar registros no unificados a CSV si existen
+    if no_unificados:
+        csv_path = out_path.rsplit('.', 1)[0] + '_no_unificados.csv'
+        export_to_csv(no_unificados, csv_path)
+        print(f"Registros no unificados exportados a: {csv_path} ({len(no_unificados)} registros)")
 
 if __name__ == '__main__':
     if len(sys.argv) != 4:
