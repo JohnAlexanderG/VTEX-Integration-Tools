@@ -26,6 +26,19 @@ Data Unification → VTEX API Mapping → Validation → Product Creation →
 SKU Creation → Media Upload → Asset Management → Final Verification
 ```
 
+## Quick Start for Claude Code
+
+**Most Common Tasks**:
+1. **Process new CSV data**: Start at step 01 and follow the numbered sequence
+2. **Add new products to VTEX**: Use steps 12-15 for complete catalog creation
+3. **Upload images**: Use steps 16-17 for media management
+4. **Generate reports**: Use step 09 for product readiness analysis
+
+**Essential Commands**:
+- `python3 [script] --help` - Get usage help for any script
+- Check `.env` file exists and has VTEX credentials before API operations
+- All scripts expect UTF-8 encoding and 4-space JSON indentation
+
 ## Environment Setup
 
 **Required Environment Variables** (root `.env` file):
@@ -35,10 +48,11 @@ SKU Creation → Media Upload → Asset Management → Final Verification
 - `VTEX_ENVIRONMENT`: VTEX environment (default: vtexcommercestable)
 
 **Python Environment**:
-- Python 3 with virtual environment in root `venv/` directory
+- Python 3.6+ with virtual environment in root `venv/` directory
 - Individual components may have separate venv for compatibility (16, 18)
 - Main dependencies: `requests`, `python-dotenv`, `unicodedata`
-- No requirements.txt - dependencies inferred from imports
+- Additional system dependencies: `fonttools` and `brotli` for font conversion (19+)
+- No requirements.txt - dependencies inferred from imports per script
 
 **Virtual Environment Setup**:
 ```bash
@@ -96,6 +110,18 @@ python3 16.2_refid_to_skuid/refid_to_skuid_mapper.py data.json mapping.json
 python3 tranform_font-ttf-woff/ttf2woff2_converter.py fonts/ woff2-fonts/
 ```
 
+### Testing and Validation
+```bash
+# Test single image upload before batch processing
+python3 17_upload_sku_images/test_single_upload.py sku_id image_url
+
+# Validate environment setup
+python3 -c "from dotenv import load_dotenv; import os; load_dotenv(); print('✓ Environment loaded' if all([os.getenv('X-VTEX-API-AppKey'), os.getenv('X-VTEX-API-AppToken'), os.getenv('VTEX_ACCOUNT_NAME')]) else '✗ Missing VTEX credentials')"
+
+# Check JSON file structure
+python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records: {len(data)}, Keys: {list(data[0].keys()) if data else []}')" file.json
+```
+
 ## Key Architectural Patterns
 
 ### Data Transformation Patterns
@@ -124,6 +150,8 @@ python3 tranform_font-ttf-woff/ttf2woff2_converter.py fonts/ woff2-fonts/
 - **Detailed Logging**: Emoji indicators, grouped error analysis, success statistics
 - **Data Reconciliation**: SKU vs RefId comparison with conflict resolution
 - **Product Classification**: Three-tier readiness analysis for VTEX catalog creation
+- **Graceful Failures**: Scripts continue processing after individual record failures
+- **Retry Logic**: Exponential backoff for API rate limiting and temporary failures
 
 ## Data Structure Evolution
 
@@ -228,13 +256,15 @@ python3 tranform_font-ttf-woff/ttf2woff2_converter.py fonts/ woff2-fonts/
 - Provide timestamped outputs for batch operation tracking
 
 ### Common Debugging Patterns
-- Check `.env` file for VTEX credentials and proper variable names
-- Verify Unicode normalization for text matching issues
-- Review generated markdown logs for API mapping and creation failures
-- Examine CSV exports for problematic data requiring manual review
-- Validate JSON indentation and encoding consistency
-- Monitor API rate limits and adjust delays if necessary
-- Check timestamp folders for organized batch operation results
+- **Environment Issues**: Check `.env` file for VTEX credentials and proper variable names
+- **Text Matching**: Verify Unicode normalization for text matching issues  
+- **API Failures**: Review generated markdown logs for API mapping and creation failures
+- **Data Problems**: Examine CSV exports for problematic data requiring manual review
+- **Format Issues**: Validate JSON indentation and encoding consistency (UTF-8, 4-space indent)
+- **Rate Limiting**: Monitor API rate limits and adjust delays if necessary
+- **Batch Operations**: Check timestamp folders for organized batch operation results
+- **File Not Found**: Ensure input files exist and paths are correct (scripts don't create missing directories)
+- **Permission Errors**: Verify venv activation and package installation in correct environment
 
 ## Dependencies
 
