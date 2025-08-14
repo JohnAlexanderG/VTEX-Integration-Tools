@@ -151,6 +151,9 @@ python3 translate_keys/translate_keys.py input.json translated.json --indent 4
 
 # Convertir JSON de vuelta a CSV
 python3 json_to_csv/json_to_csv.py input.json output.csv
+
+# Filtrar datos comparando archivos JSON por _SKUReferenceCode
+python3 filtrar_sku/filtrar_sku.py archivo1.json archivo2.json
 ```
 
 ## Descripción de Componentes
@@ -190,6 +193,7 @@ python3 json_to_csv/json_to_csv.py input.json output.csv
 - **`19_csv_json_status_filter/`**: Filtra datasets basado en condiciones de estado y criterios
 - **`extract_refid_ean/`**: Extrae mapeos de SKU y códigos EAN de datasets unificados
 - **`tranform_font-ttf-woff/`**: Convierte fuentes TTF a formato WOFF2 para optimización web
+- **`filtrar_sku/`**: Compara dos archivos JSON por _SKUReferenceCode, exporta coincidencias como JSON con _SkuId y no coincidencias como CSV
 
 ### Herramientas de Utilidad Base
 - **`translate_keys/`**: Traduce claves JSON del español al inglés con lógica de deduplicación

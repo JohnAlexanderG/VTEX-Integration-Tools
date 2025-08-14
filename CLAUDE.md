@@ -108,6 +108,9 @@ python3 16.2_refid_to_skuid/refid_to_skuid_mapper.py data.json mapping.json
 
 # Font conversion utility
 python3 tranform_font-ttf-woff/ttf2woff2_converter.py fonts/ woff2-fonts/
+
+# SKU filtering utility
+python3 filtrar_sku/filtrar_sku.py archivo1.json archivo2.json  # Filters pricing data based on existing SKU references
 ```
 
 ### Testing and Validation
@@ -213,6 +216,7 @@ python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records
 - **Status Filtering** (19): Filter datasets based on status conditions and criteria
 - **RefId-EAN Extraction**: Extract SKU and EAN mappings from unified datasets
 - **Font Conversion**: TTF to WOFF2 conversion for web optimization
+- **SKU Filtering** (filtrar_sku): Compare two JSON files by _SKUReferenceCode, outputs matches as JSON with _SkuId field, non-matches as CSV
 
 ## File Organization Patterns
 
