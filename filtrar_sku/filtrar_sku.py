@@ -10,10 +10,15 @@ y genera dos archivos de salida:
 2. Un archivo con los datos del archivo 1 que NO tienen coincidencias en archivo 2
 
 Uso:
-    python3 filtrar_sku.py archivo1.json archivo2.json
+    python3 filtrar_sku.py archivo1.json archivo2.json --tipo {precios|inventario}
 
-Ejemplo:
-    python3 filtrar_sku.py productos_existentes.json precios_nuevos.json
+Ejemplos:
+    python3 filtrar_sku.py productos_existentes.json precios_nuevos.json --tipo precios
+    python3 filtrar_sku.py productos_existentes.json inventario_nuevos.json --tipo inventario
+
+Tipos de archivo soportados:
+- precios: Contiene campos Costo, Precio Venta
+- inventario: Contiene campos Codigo Sucursal, Existencia
 """
 
 import json
@@ -21,18 +26,28 @@ import sys
 import argparse
 import os
 import csv
+from datetime import datetime
 
 def main():
     # Configurar argumentos de línea de comandos
     parser = argparse.ArgumentParser(description='Filtrar archivos JSON usando _SKUReferenceCode')
     parser.add_argument('archivo1', help='Archivo JSON de referencia (contiene SKUs existentes)')
     parser.add_argument('archivo2', help='Archivo JSON a filtrar (se extraen los datos coincidentes)')
-    parser.add_argument('--salida-coincidencias', default='coincidencias.json', 
-                       help='Archivo de salida para datos coincidentes del archivo 2 (default: coincidencias.json)')
-    parser.add_argument('--salida-no-encontrados', default='no_encontrados.csv',
-                       help='Archivo de salida para datos no encontrados del archivo 1 (default: no_encontrados.csv)')
+    parser.add_argument('--tipo', choices=['precios', 'inventario'], required=True, 
+                       help='Tipo de archivo del segundo archivo: precios o inventario')
+    parser.add_argument('--salida-coincidencias', 
+                       help='Archivo de salida para datos coincidentes del archivo 2 (default: {tipo}_{fecha}.json)')
+    parser.add_argument('--salida-no-encontrados', 
+                       help='Archivo de salida para datos no encontrados del archivo 1 (default: no_encontrados_{fecha}.csv)')
     
     args = parser.parse_args()
+    
+    # Generar nombres de archivo por defecto con fecha y tipo
+    fecha_actual = datetime.now().strftime('%Y%m%d')
+    if args.salida_coincidencias is None:
+        args.salida_coincidencias = f'{args.tipo}_{fecha_actual}.json'
+    if args.salida_no_encontrados is None:
+        args.salida_no_encontrados = f'no_encontrados_{fecha_actual}.csv'
     
     # Validar que los archivos existan
     if not os.path.exists(args.archivo1):
@@ -142,31 +157,54 @@ def main():
             if sku and sku != '' and sku != 'None':
                 mapeo_archivo1[sku] = item
         
-        # Función para limpiar campos problemáticos
-        def limpiar_item(item):
-            item_limpio = {}
-            for clave, valor in item.items():
-                # Filtrar claves null, vacías o problemáticas
-                if clave and clave != 'null' and clave.strip() != '':
-                    # Filtrar valores problemáticos
-                    if valor is not None and valor != [''] and valor != [] and valor != '':
-                        item_limpio[clave] = valor
-            return item_limpio
         
         # Filtrar archivo 2 - solo registros que existan en archivo 1
         # Agregar el campo _SkuId (Not changeable) del archivo 1
+        # Solo mantener campos específicos y renombrar según requerimientos
         coincidencias = []
         for item in data2:
             sku = limpiar_sku(item.get('_SKUReferenceCode'))
             if sku in skus_archivo1:
-                # Crear una copia del item del archivo 2 y limpiarlo
-                item_con_skuid = limpiar_item(item)
+                # Crear objeto con solo los campos requeridos según el tipo
+                if args.tipo == 'precios':
+                    item_filtrado = {
+                        '_SkuId': item.get('_SkuId (Not changeable)'),
+                        '_SKUReferenceCode': item.get('_SKUReferenceCode'),
+                        'costPrice': item.get('Costo'),
+                        'basePrice': item.get('Precio Venta')
+                    }
+                elif args.tipo == 'inventario':
+                    # Convertir Existencia a entero
+                    existencia = item.get('Existencia', '0')
+                    try:
+                        quantity = int(str(existencia).strip()) if existencia else 0
+                    except ValueError:
+                        quantity = 0
+                    
+                    # Siempre usar unlimitedQuantity=false como regla de negocio
+                    unlimited_quantity = False
+                    
+                    item_filtrado = {
+                        '_SkuId': item.get('_SkuId (Not changeable)'),
+                        '_SKUReferenceCode': item.get('_SKUReferenceCode'),
+                        'warehouseId': item.get('Codigo Sucursal'),
+                        'quantity': quantity,
+                        'unlimitedQuantity': unlimited_quantity
+                    }
+                    
+                    # Agregar campos opcionales si están disponibles
+                    if item.get('dateUtcOnBalanceSystem'):
+                        item_filtrado['dateUtcOnBalanceSystem'] = item.get('dateUtcOnBalanceSystem')
+                    
+                    if item.get('leadTime'):
+                        item_filtrado['leadTime'] = item.get('leadTime')
+                
                 # Agregar el _SkuId del archivo 1 si existe
                 if sku in mapeo_archivo1:
                     sku_id = mapeo_archivo1[sku].get('_SkuId (Not changeable)')
                     if sku_id is not None:
-                        item_con_skuid['_SkuId'] = sku_id
-                coincidencias.append(item_con_skuid)
+                        item_filtrado['_SkuId'] = sku_id
+                coincidencias.append(item_filtrado)
         
         # Encontrar registros de archivo 1 que NO están en archivo 2
         no_encontrados = []
