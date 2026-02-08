@@ -1,64 +1,83 @@
-# VTEX Specification Creator
+# Creador de Especificaciones VTEX
 
-Creates VTEX specifications within specification groups via API.
+Crea especificaciones dentro de grupos de especificaciones en VTEX mediante API.
 
-## Overview
+## Descripción
 
-This script reads a JSON file with specification group creation responses (from step 31) and creates specifications within those groups using the VTEX Catalog API endpoint `/api/catalog/pvt/specification`.
+Este script lee un archivo JSON con respuestas de creación de grupos de especificaciones (paso 31) y crea especificaciones dentro de esos grupos utilizando el endpoint `/api/catalog/pvt/specification` de la API de Catálogo de VTEX.
 
-## Prerequisites
+## Requisitos Previos
 
 - Python 3.6+
-- VTEX credentials configured in root `.env` file
-- Specification groups already created (output from step 31)
-- Specification definitions prepared in JSON format
+- Credenciales VTEX configuradas en archivo `.env` en raíz del proyecto
+- Grupos de especificaciones ya creados (salida del paso 31)
+- Definiciones de especificaciones preparadas en formato JSON
 
-## Installation
+## Instalación
 
 ```bash
-# From project root
+# Desde la raíz del proyecto
 source venv/bin/activate
 pip install requests python-dotenv
 ```
 
-## Usage
+## Configuración de Credenciales
 
-### Basic Usage
+Asegúrese que el archivo `.env` en la raíz contiene:
 
-```bash
-python3 vtex_specification_create.py groups.json specs.json
+```
+X-VTEX-API-AppKey=tu_app_key
+X-VTEX-API-AppToken=tu_app_token
+VTEX_ACCOUNT_NAME=nombre_cuenta
+VTEX_ENVIRONMENT=vtexcommercestable
 ```
 
-### Dry-Run Mode (Test without creating)
+## Uso
+
+### Uso Básico
 
 ```bash
-python3 vtex_specification_create.py groups.json specs.json --dry-run
+python3 vtex_specification_create.py grupos.json especificaciones.json
 ```
 
-### Custom Delay and Timeout
+### Modo Dry-Run (Prueba sin crear)
 
 ```bash
-python3 vtex_specification_create.py groups.json specs.json --delay 2.0 --timeout 60
+python3 vtex_specification_create.py grupos.json especificaciones.json --dry-run
 ```
 
-### Full Example
+### Con Delay y Timeout Personalizados
 
 ```bash
-# Test first with dry-run
+python3 vtex_specification_create.py grupos.json especificaciones.json --delay 2.0 --timeout 60
+```
+
+### Ejemplo Completo
+
+```bash
+# Primero probar con dry-run
 python3 vtex_specification_create.py \
   20260108_023307_specificationgroup_creation_successful.json \
-  specifications_template.json \
+  especificaciones_template.json \
   --dry-run
 
-# If everything looks good, run for real
+# Si todo se ve bien, ejecutar de verdad
 python3 vtex_specification_create.py \
   20260108_023307_specificationgroup_creation_successful.json \
-  specifications_template.json
+  especificaciones_template.json
 ```
 
-## Input File Formats
+### Ver Ayuda Completa
 
-### Groups JSON (from step 31)
+```bash
+python3 vtex_specification_create.py --help
+```
+
+## Formato de Entrada
+
+### Archivo JSON de Grupos (desde paso 31)
+
+Estructura esperada:
 
 ```json
 [
@@ -79,11 +98,13 @@ python3 vtex_specification_create.py \
 ]
 ```
 
-The script extracts:
-- `response.Id` → `FieldGroupId`
-- `response.CategoryId` → `CategoryId`
+El script extrae:
+- `response.Id` → `FieldGroupId` (ID del grupo de especificación)
+- `response.CategoryId` → `CategoryId` (ID de categoría)
 
-### Specifications JSON
+### Archivo JSON de Especificaciones
+
+Estructura esperada:
 
 ```json
 [
@@ -101,64 +122,70 @@ The script extracts:
 ]
 ```
 
-You can define multiple specifications in the array, and they will be created for ALL specification groups.
+Puede definir múltiples especificaciones en el array, y se crearán para TODOS los grupos.
 
-### VTEX FieldTypeId Reference
+### Referencia de FieldTypeId en VTEX
 
-Common field types:
-- `1`: Text (short)
-- `2`: Text (large/multiline)
-- `4`: Number
+Tipos de campo comunes:
+- `1`: Texto (corto)
+- `2`: Texto (largo/multilínea)
+- `4`: Número
 - `5`: Combo (dropdown)
-- `6`: Radio button
+- `6`: Botón de radio
 - `7`: Checkbox
 
-## Output Files
+## Formato de Salida
 
-The script generates several output files with timestamps:
+El script genera varios archivos con timestamp (YYYYMMDD_HHMMSS):
 
-1. **`YYYYMMDD_HHMMSS_specification_creation_successful.json`**
-   - Full API responses for successful creations
-   - Includes all extracted fields and complete response data
+### 1. Especificaciones Creadas Exitosamente
 
-2. **`YYYYMMDD_HHMMSS_specification_creation_successful.csv`**
-   - Summary table with key fields:
-     - `FieldId`: VTEX specification field ID
-     - `CategoryId`: Category ID
-     - `FieldGroupId`: Specification group ID
-     - `Name`: Specification name
-     - `FieldTypeId`: Field type (1=Text, 4=Number, 5=Combo, etc.)
-     - `Position`: Display position
-     - `IsRequired`: Whether field is required
-     - `IsFilter`: Whether field is filterable
-     - `IsActive`: Whether field is active
+**YYYYMMDD_HHMMSS_specification_creation_successful.json**
+- Respuestas API completas para creaciones exitosas
+- Incluye todos los campos extraídos y datos completos de respuesta
 
-3. **`YYYYMMDD_HHMMSS_specification_creation_failed.json`**
-   - Detailed error information for failed creations
+**YYYYMMDD_HHMMSS_specification_creation_successful.csv**
+- Tabla resumen con campos clave:
+  - `FieldId`: ID del campo de especificación VTEX
+  - `CategoryId`: ID de categoría
+  - `FieldGroupId`: ID del grupo de especificación
+  - `Name`: Nombre de la especificación
+  - `FieldTypeId`: Tipo de campo (1=Texto, 4=Número, 5=Combo, etc.)
+  - `Position`: Posición de visualización
+  - `IsRequired`: Si el campo es requerido
+  - `IsFilter`: Si el campo es filtrable
+  - `IsActive`: Si el campo está activo
 
-4. **`YYYYMMDD_HHMMSS_specification_creation_failed.csv`**
-   - Error summary for manual review
+### 2. Especificaciones que Fallaron
 
-5. **`YYYYMMDD_HHMMSS_specification_creation_REPORT.md`**
-   - Comprehensive markdown report with statistics and recommendations
-   - Enhanced table format showing all key specification properties
+**YYYYMMDD_HHMMSS_specification_creation_failed.json**
+- Información detallada de errores para creaciones fallidas
 
-## Features
+**YYYYMMDD_HHMMSS_specification_creation_failed.csv**
+- Resumen de errores para revisión manual
 
-- **Rate Limiting**: Configurable delay between requests (default: 1s)
-- **Exponential Backoff**: Automatic retry with increasing delays for rate limits (429 errors)
-- **Dry-Run Mode**: Test the process without making actual API calls
-- **Error Handling**: Comprehensive error tracking with detailed exports
-- **Progress Tracking**: Real-time progress updates every 10 groups
-- **Batch Processing**: Creates specifications for all groups × all spec definitions
+### 3. Reporte
 
-## API Endpoint
+**YYYYMMDD_HHMMSS_specification_creation_REPORT.md**
+- Reporte markdown comprehensivo con estadísticas y recomendaciones
+- Tabla mejorada mostrando todas las propiedades clave de especificación
+
+## Características
+
+- **Rate Limiting**: Delay configurable entre requests (default: 1s)
+- **Exponential Backoff**: Reintentos automáticos con delays crecientes para errores 429
+- **Modo Dry-Run**: Prueba el proceso sin hacer llamadas reales a la API
+- **Manejo de Errores**: Seguimiento comprehensivo de errores con exportaciones detalladas
+- **Progreso en Tiempo Real**: Actualizaciones cada 10 grupos procesados
+- **Procesamiento por Lotes**: Crea especificaciones para todos grupos × definiciones
+
+## Endpoint API
 
 ```
 POST https://{accountName}.{environment}.com.br/api/catalog/pvt/specification
 ```
 
-### Request Body
+### Body de Solicitud
 
 ```json
 {
@@ -176,18 +203,19 @@ POST https://{accountName}.{environment}.com.br/api/catalog/pvt/specification
 }
 ```
 
-## Common Workflows
+## Flujos de Trabajo Comunes
 
-### Create Single Specification for All Groups
+### Crear Una Especificación para Todos los Grupos
 
-1. Prepare your specification in `specifications_template.json`
-2. Run dry-run: `python3 vtex_specification_create.py groups.json specifications_template.json --dry-run`
-3. Review the output
-4. Run for real: `python3 vtex_specification_create.py groups.json specifications_template.json`
+1. Prepare su especificación en `especificaciones_template.json`
+2. Ejecute dry-run: `python3 vtex_specification_create.py grupos.json especificaciones_template.json --dry-run`
+3. Revise la salida
+4. Ejecute de verdad: `python3 vtex_specification_create.py grupos.json especificaciones_template.json`
 
-### Create Multiple Specifications for All Groups
+### Crear Múltiples Especificaciones para Todos los Grupos
 
-1. Edit `specifications_template.json` to include multiple specifications:
+1. Edite `especificaciones_template.json` para incluir múltiples especificaciones:
+
 ```json
 [
   {
@@ -208,41 +236,59 @@ POST https://{accountName}.{environment}.com.br/api/catalog/pvt/specification
 ]
 ```
 
-2. Run the script - it will create all 3 specifications for each group
+2. Ejecute el script - creará las 3 especificaciones para cada grupo
 
-## Troubleshooting
+## Argumentos CLI
+
+```
+vtex_specification_create.py [-h] [--dry-run] [--delay DELAY] [--timeout TIMEOUT]
+                             grupos_json
+                             especificaciones_json
+
+Posicionales:
+  grupos_json              JSON con grupos creados (paso 31)
+  especificaciones_json    JSON con definiciones de especificaciones
+
+Opcionales:
+  -h, --help              Muestra mensaje de ayuda
+  --dry-run               Simula sin hacer llamadas API reales
+  --delay DELAY           Delay entre requests en segundos (default: 1.0)
+  --timeout TIMEOUT       Timeout de request en segundos (default: 30)
+```
+
+## Solución de Problemas
 
 ### "Missing VTEX credentials in .env"
-- Ensure your root `.env` file contains:
+- Asegúrese que el archivo `.env` en raíz contiene:
   - `X-VTEX-API-AppKey`
   - `X-VTEX-API-AppToken`
   - `VTEX_ACCOUNT_NAME`
 
 ### "Rate limit exceeded"
-- Increase delay: `--delay 2.0`
-- The script automatically retries with exponential backoff
+- Aumente delay: `--delay 2.0`
+- El script automáticamente reintenta con exponential backoff
 
 ### "CategoryId or FieldGroupId not found"
-- Verify your groups JSON file structure
-- Ensure specification groups were created successfully in step 31
+- Verifique estructura del archivo JSON de grupos
+- Asegúrese que los grupos fueron creados exitosamente en paso 31
 
-### Some specifications fail to create
-- Check the failed CSV export for error patterns
-- Verify CategoryId and FieldGroupId exist in VTEX
-- Review error messages in the markdown report
+### Algunas especificaciones fallan
+- Revise el CSV de fallos para patrones de error
+- Verifique que CategoryId y FieldGroupId existan en VTEX
+- Revise mensajes de error en reporte markdown
 
 ## Performance
 
-- **Processing time**: ~1 second per specification (with default delay)
-- **Example**: 58 groups × 1 specification = ~58 seconds
-- **Example**: 58 groups × 5 specifications = ~290 seconds (~5 minutes)
+- **Tiempo de procesamiento**: ~1 segundo por especificación (con delay default)
+- **Ejemplo**: 58 grupos × 1 especificación = ~58 segundos
+- **Ejemplo**: 58 grupos × 5 especificaciones = ~290 segundos (~5 minutos)
 
-## Exit Codes
+## Códigos de Salida
 
-- `0`: All specifications created successfully
-- `1`: Some specifications failed to create (check exports)
+- `0`: Todas las especificaciones se crearon exitosamente
+- `1`: Algunas especificaciones fallaron (revise exportaciones)
 
-## Related Scripts
+## Scripts Relacionados
 
-- **Step 31**: `31_vtex_specificationgroup_create` - Creates specification groups
-- **Next Step**: Create specification values for combo/radio/checkbox fields
+- **Paso 31**: `31_vtex_specificationgroup_create` - Crea grupos de especificaciones
+- **Siguiente**: Crear valores de especificación para campos combo/radio/checkbox
