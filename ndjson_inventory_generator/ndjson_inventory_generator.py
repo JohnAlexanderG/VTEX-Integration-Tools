@@ -2,17 +2,26 @@
 """
 NDJSON Inventory Generator
 
-Extracts _SKUReferenceCode from input NDJSON file and generates inventory records
-with random warehouse assignments.
+Extracts _SKUReferenceCode from input NDJSON file and generates inventory records.
+Supports two modes: inventory (random warehouse) and reset (all warehouses with quantity 0).
 
 Usage:
-    python3 ndjson_inventory_generator.py input.ndjson output.ndjson
+    # Inventory mode (default): one record per SKU with random warehouse
+    python3 ndjson_inventory_generator.py input.ndjson output.ndjson --mode inventory --quantity 100
+
+    # Reset mode: one record per SKU per warehouse with quantity 0
+    python3 ndjson_inventory_generator.py input.ndjson output.ndjson --mode reset
 
 Input format:
     {"_SKUReferenceCode": "value", ...other fields...}
 
-Output format:
-    {"_SKUReferenceCode": "value", "warehouseId": "021", "quantity": 1000, "unlimitedQuantity": false}
+Output format (inventory mode):
+    {"_SKUReferenceCode": "value", "warehouseId": "021", "quantity": 100, "unlimitedQuantity": false}
+
+Output format (reset mode - generates N_SKUs x N_warehouses records):
+    {"_SKUReferenceCode": "value", "warehouseId": "021", "quantity": 0, "unlimitedQuantity": false}
+    {"_SKUReferenceCode": "value", "warehouseId": "001", "quantity": 0, "unlimitedQuantity": false}
+    ... (one record per warehouse)
 """
 
 import json
@@ -22,17 +31,17 @@ import argparse
 import csv
 
 
-WAREHOUSE_IDS = ["021", "001", "140", "084", "180", "160", "280", "320",
-                 "340", "300", "032", "200", "100", "095", "003", "053", "068"]
+WAREHOUSE_IDS = ["021", "001", "140", "084", "180", "160", "280", "320", "340", "300", "032", "200", "100", "095", "003", "053", "068", "220"]
 
-
-def process_ndjson(input_file, output_file):
+def process_ndjson(input_file, output_file, mode='inventory', quantity=100):
     """
     Process NDJSON file and generate inventory records.
 
     Args:
         input_file: Path to input NDJSON file
         output_file: Path to output NDJSON file
+        mode: 'inventory' (one record per SKU, random warehouse) or 'reset' (all warehouses, quantity 0)
+        quantity: Quantity for inventory mode (ignored in reset mode)
     """
     processed_count = 0
     skipped_count = 0
@@ -68,18 +77,30 @@ def process_ndjson(input_file, output_file):
                     skipped_count += 1
                     continue
 
-                # Generate new record
-                inventory_record = {
-                    "_SKUReferenceCode": sku_ref,
-                    "warehouseId": random.choice(WAREHOUSE_IDS),
-                    "quantity": 0,
-                    "unlimitedQuantity": False
-                }
-
-                # Write to output file
-                outfile.write(json.dumps(inventory_record, ensure_ascii=False) + '\n')
-                inventory_records.append(inventory_record)
-                processed_count += 1
+                # Generate records based on mode
+                if mode == 'reset':
+                    # Reset mode: one record per warehouse with quantity 0
+                    for warehouse_id in WAREHOUSE_IDS:
+                        inventory_record = {
+                            "_SKUReferenceCode": sku_ref,
+                            "warehouseId": warehouse_id,
+                            "quantity": 0,
+                            "unlimitedQuantity": False
+                        }
+                        outfile.write(json.dumps(inventory_record, ensure_ascii=False) + '\n')
+                        inventory_records.append(inventory_record)
+                    processed_count += 1
+                else:
+                    # Inventory mode: one record per SKU with random warehouse
+                    inventory_record = {
+                        "_SKUReferenceCode": sku_ref,
+                        "warehouseId": random.choice(WAREHOUSE_IDS),
+                        "quantity": quantity,
+                        "unlimitedQuantity": False
+                    }
+                    outfile.write(json.dumps(inventory_record, ensure_ascii=False) + '\n')
+                    inventory_records.append(inventory_record)
+                    processed_count += 1
 
             except json.JSONDecodeError as e:
                 error_msg = f"Line {line_number}: Invalid JSON - {e}"
@@ -117,7 +138,13 @@ def process_ndjson(input_file, output_file):
                 logfile.write(f"{'-'*80}\n\n")
 
     print(f"\n✓ Processing complete")
-    print(f"  Processed: {processed_count} records")
+    print(f"  Mode: {mode}")
+    print(f"  SKUs processed: {processed_count}")
+    print(f"  Records generated: {len(inventory_records)}")
+    if mode == 'reset':
+        print(f"  Warehouses: {len(WAREHOUSE_IDS)}")
+    else:
+        print(f"  Quantity per record: {quantity}")
     print(f"  Skipped: {skipped_count} records")
     print(f"  Output NDJSON: {output_file}")
     print(f"  Output CSV: {csv_file}")
@@ -127,15 +154,19 @@ def process_ndjson(input_file, output_file):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate VTEX inventory records from NDJSON with random warehouse assignments'
+        description='Generate VTEX inventory records from NDJSON'
     )
     parser.add_argument('input_file', help='Input NDJSON file')
     parser.add_argument('output_file', help='Output NDJSON file')
+    parser.add_argument('--mode', choices=['inventory', 'reset'], default='inventory',
+                        help='inventory: one record per SKU with random warehouse. reset: one record per SKU per warehouse with quantity 0 (default: inventory)')
+    parser.add_argument('--quantity', type=int, default=100,
+                        help='Quantity for inventory mode, ignored in reset mode (default: 100)')
 
     args = parser.parse_args()
 
     try:
-        process_ndjson(args.input_file, args.output_file)
+        process_ndjson(args.input_file, args.output_file, args.mode, args.quantity)
     except FileNotFoundError:
         print(f"Error: Input file '{args.input_file}' not found")
         sys.exit(1)
