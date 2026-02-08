@@ -14,7 +14,10 @@ Funcionalidad:
 - Asigna IDs correspondientes:
   * DepartmentId: ID del departamento VTEX
   * CategoryId: ID de subcategoría si existe, sino ID de categoría, sino DepartmentId
-- Genera reporte detallado en markdown con estadísticas y errores agrupados
+- Genera reportes de salida:
+  * JSON detallado con información completa de comparación
+  * Markdown con estadísticas y errores agrupados
+  * CSV con registros completos que fallaron en el mapeo (incluye motivo de error)
 - Maneja casos especiales y errores de mapping con logging comprehensivo
 
 Lógica de Mapeo:
@@ -42,6 +45,7 @@ import requests
 import sys
 import unicodedata
 import os
+import csv
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -71,18 +75,31 @@ HEADERS = {
 }
 
 
-def normalize(text, debug=False):
-    """Elimina acentos y convierte a minúsculas."""
+def normalize(text):
+    """
+    Normaliza texto para comparación: elimina acentos, ñ→n, convierte a minúsculas.
+
+    Ejemplos:
+    - "Mantenimiento Baño" → "mantenimiento bano"
+    - "Decoración" → "decoracion"
+    - "ASEO" → "aseo"
+    - "Niños y Niñas" → "ninos y ninas"
+    """
     if not text:
         return ''
-    original = text
-    nfkd = unicodedata.normalize('NFKD', text)
-    without_accents = ''.join([c for c in nfkd if unicodedata.category(c) != 'Mn'])
-    normalized = without_accents.lower().strip()
-    
-    if debug and original != normalized:
-        print(f"  📝 Normalización: '{original}' → '{normalized}'")
-    
+
+    # Normalización NFD: descompone caracteres acentuados (á → a + ´)
+    nfd = unicodedata.normalize('NFD', text)
+
+    # Eliminar marcas diacríticas (acentos, diéresis, etc.)
+    without_accents = ''.join([c for c in nfd if unicodedata.category(c) != 'Mn'])
+
+    # Reemplazar explícitamente ñ y Ñ por n (por si NFD no lo maneja)
+    without_n = without_accents.replace('ñ', 'n').replace('Ñ', 'n')
+
+    # Convertir a minúsculas y eliminar espacios al inicio/final
+    normalized = without_n.lower().strip()
+
     return normalized
 
 
@@ -107,15 +124,105 @@ def build_tree_map(tree):
     return dept_map
 
 
-def generate_log_report(log_data, output_file):
-    """Genera un archivo de log optimizado en formato markdown."""
-    log_filename = output_file.replace('.json', '_category_log.md')
+def generate_log_reports(log_data, output_file, tree_map):
+    """Genera archivos de log detallados en formato JSON, markdown y CSV para fallidos."""
+    # Archivo JSON detallado con toda la información de comparación
+    json_log_filename = output_file.replace('.json', '_comparison_log.json')
+    md_log_filename = output_file.replace('.json', '_category_log.md')
+    csv_failed_filename = output_file.replace('.json', '_fallidos.csv')
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Procesar datos para eliminar duplicados y agrupar
+
+    # Preparar datos detallados para JSON
+    detailed_log = {
+        'timestamp': timestamp,
+        'summary': {
+            'total_processed': len(log_data['successful']) + len(log_data['failed']),
+            'successful': len(log_data['successful']),
+            'failed': len(log_data['failed'])
+        },
+        'vtex_categories_available': {
+            'departments': list(tree_map.keys()),
+            'department_count': len(tree_map),
+            'full_tree': {}
+        },
+        'comparison_details': []
+    }
+
+    # Incluir árbol completo de VTEX para referencia (con nombres normalizados)
+    for dept_norm, dept_data in tree_map.items():
+        detailed_log['vtex_categories_available']['full_tree'][dept_norm] = {
+            'id': dept_data['id'],
+            'normalized_name': dept_norm,  # Mostrar el nombre normalizado
+            'categories': {}
+        }
+        for cat_norm, cat_data in dept_data['children'].items():
+            detailed_log['vtex_categories_available']['full_tree'][dept_norm]['categories'][cat_norm] = {
+                'id': cat_data['id'],
+                'normalized_name': cat_norm,  # Mostrar el nombre normalizado
+                'subcategories': {}
+            }
+            # Incluir subcategorías con sus nombres normalizados
+            for sub_norm, sub_id in cat_data['children'].items():
+                detailed_log['vtex_categories_available']['full_tree'][dept_norm]['categories'][cat_norm]['subcategories'][sub_norm] = {
+                    'id': sub_id,
+                    'normalized_name': sub_norm
+                }
+
+    # Combinar todos los registros con detalles de comparación
+    all_records = log_data['successful'] + log_data['failed']
+
+    for record in all_records:
+        detail = {
+            'category_path_original': record['category_path'],
+            'parsing': {
+                'department': {
+                    'original': record.get('department'),
+                    'normalized': normalize(record.get('department', '')) if record.get('department') else None
+                },
+                'category': {
+                    'original': record.get('category'),
+                    'normalized': normalize(record.get('category', '')) if record.get('category') else None
+                },
+                'subcategory': {
+                    'original': record.get('subcategory'),
+                    'normalized': normalize(record.get('subcategory', '')) if record.get('subcategory') else None
+                }
+            },
+            'matching_results': {
+                'department_found': record.get('department_found', False),
+                'department_id': record.get('department_id'),
+                'category_found': record.get('category_found', False),
+                'category_id': record.get('category_id'),
+                'subcategory_found': record.get('subcategory_found', False),
+                'subcategory_id': record.get('subcategory_id')
+            },
+            'status': 'success' if record in log_data['successful'] else 'failed'
+        }
+
+        # Agregar categorías disponibles en VTEX para el departamento
+        if record.get('department'):
+            dept_norm = normalize(record['department'])
+            if dept_norm in tree_map:
+                detail['vtex_available_categories'] = list(tree_map[dept_norm]['children'].keys())
+
+                # Si hay categoría, agregar subcategorías disponibles
+                if record.get('category'):
+                    cat_norm = normalize(record['category'])
+                    if cat_norm in tree_map[dept_norm]['children']:
+                        detail['vtex_available_subcategories'] = list(
+                            tree_map[dept_norm]['children'][cat_norm]['children'].keys()
+                        )
+
+        detailed_log['comparison_details'].append(detail)
+
+    # Guardar JSON detallado
+    with open(json_log_filename, 'w', encoding='utf-8') as f:
+        json.dump(detailed_log, f, indent=2, ensure_ascii=False)
+
+    # Procesar datos para eliminar duplicados y agrupar para markdown
     successful_unique = {}
     failed_unique = {}
-    
+
     # Agrupar exitosos por ruta única
     for item in log_data['successful']:
         path = item['category_path']
@@ -128,7 +235,7 @@ def generate_log_report(log_data, output_file):
             }
         else:
             successful_unique[path]['count'] += 1
-    
+
     # Agrupar fallidos por tipo de error
     for item in log_data['failed']:
         path = item['category_path']
@@ -139,9 +246,9 @@ def generate_log_report(log_data, output_file):
             error_reasons.append("Categoría no existe")
         if item['subcategory'] and not item['subcategory_found']:
             error_reasons.append("Subcategoría no existe")
-        
+
         error_key = ", ".join(error_reasons)
-        
+
         if path not in failed_unique:
             failed_unique[path] = {
                 'department': item['department'],
@@ -152,24 +259,26 @@ def generate_log_report(log_data, output_file):
             }
         else:
             failed_unique[path]['count'] += 1
-    
-    with open(log_filename, 'w', encoding='utf-8') as f:
+
+    # Generar markdown
+    with open(md_log_filename, 'w', encoding='utf-8') as f:
         f.write(f"# Reporte de Mapeo de Categorías VTEX\n\n")
         f.write(f"**Fecha:** {timestamp}\n\n")
-        
+
         # Resumen
         total_successful = len(log_data['successful'])
         total_failed = len(log_data['failed'])
         total_processed = total_successful + total_failed
         unique_successful = len(successful_unique)
         unique_failed = len(failed_unique)
-        
+
         f.write(f"## 📊 Resumen\n\n")
         f.write(f"- **Total procesado:** {total_processed} registros\n")
         f.write(f"- **Exitosos:** {total_successful} ({unique_successful} rutas únicas)\n")
         f.write(f"- **Fallidos:** {total_failed} ({unique_failed} rutas únicas)\n")
         f.write(f"- **Tasa de éxito:** {(total_successful/total_processed*100):.1f}%\n\n")
-        
+        f.write(f"- **Archivo de comparación detallada:** `{json_log_filename}`\n\n")
+
         # Errores agrupados por tipo
         f.write(f"## ❌ Errores Encontrados ({unique_failed} rutas únicas)\n\n")
         if failed_unique:
@@ -180,19 +289,51 @@ def generate_log_report(log_data, output_file):
                 if error not in by_error:
                     by_error[error] = []
                 by_error[error].append((path, data))
-            
+
             for error_type, items in sorted(by_error.items()):
                 f.write(f"### {error_type}\n\n")
                 for path, data in sorted(items):
                     count_info = f" *(×{data['count']})*" if data['count'] > 1 else ""
-                    f.write(f"- `{path}`{count_info}\n")
+                    dept_norm = normalize(data['department']) if data['department'] else None
+
+                    # Mostrar qué hay disponible en VTEX
+                    vtex_info = ""
+                    if dept_norm and dept_norm in tree_map:
+                        cats_available = list(tree_map[dept_norm]['children'].keys())
+                        if cats_available and data['category']:
+                            cat_norm = normalize(data['category'])
+                            vtex_info = f"\n  - VTEX tiene en '{data['department']}': {cats_available[:10]}{'...' if len(cats_available) > 10 else ''}"
+
+                    f.write(f"- `{path}`{count_info}{vtex_info}\n")
                 f.write("\n")
         else:
             f.write("*No hay errores.*\n\n")
-        
+
         f.write(f"---\n*Generado automáticamente*\n")
-    
-    return log_filename
+
+    # Exportar CSV con registros fallidos completos
+    if log_data.get('failed_records'):
+        try:
+            with open(csv_failed_filename, 'w', encoding='utf-8', newline='') as csvfile:
+                # Obtener todas las claves de los registros fallidos
+                all_keys = set()
+                for record in log_data['failed_records']:
+                    all_keys.update(record.keys())
+
+                # Ordenar las claves, poniendo _error_reason al final
+                fieldnames = sorted([k for k in all_keys if k != '_error_reason'])
+                if '_error_reason' in all_keys:
+                    fieldnames.append('_error_reason')
+
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+                writer.writeheader()
+                writer.writerows(log_data['failed_records'])
+
+            print(f"  - Registros fallidos CSV: {csv_failed_filename}")
+        except Exception as e:
+            print(f"⚠️  Error al generar CSV de fallidos: {e}", file=sys.stderr)
+
+    return json_log_filename, md_log_filename, csv_failed_filename
 
 
 def fetch_category_tree(endpoint):
@@ -209,12 +350,12 @@ def map_ids_to_records(records, tree_map):
     mapped = []
     log_data = {
         'successful': [],
-        'failed': []
+        'failed': [],
+        'failed_records': []  # Almacenar registros completos que fallaron
     }
-    
+
     print(f"\n🔄 Procesando {len(records)} registros...")
-    processed_categories = set()
-    
+
     for i, rec in enumerate(records, 1):
         cat_path = rec.get('CategoryPath', rec.get('Categoría', ''))  # Soporte para ambos nombres
         parts = [p.strip() for p in cat_path.split('>') if p.strip()]
@@ -227,55 +368,48 @@ def map_ids_to_records(records, tree_map):
             'subcategory': None,
             'department_found': False,
             'category_found': False,
-            'subcategory_found': False
+            'subcategory_found': False,
+            'department_id': None,
+            'category_id': None,
+            'subcategory_id': None
         }
-        
-        # Mostrar progreso y nueva categoría solo si no se ha procesado antes
-        if cat_path and cat_path not in processed_categories:
-            print(f"\n📋 [{i}/{len(records)}] Procesando categoría: '{cat_path}'")
-            if len(parts) > 1:
-                hierarchy = " > ".join([f"'{part}'" for part in parts])
-                print(f"  🌳 Jerarquía detectada: {hierarchy}")
-            processed_categories.add(cat_path)
-        
+
+        # Mostrar progreso simple cada 100 registros
+        if i % 100 == 0 or i == len(records):
+            print(f"  Procesados: {i}/{len(records)}")
+
         if parts:
             # Departamento
-            d_norm = normalize(parts[0], debug=cat_path not in processed_categories)
+            d_norm = normalize(parts[0])
             mapping_status['department'] = parts[0]
             dept_entry = tree_map.get(d_norm)
+
             if dept_entry:
                 dept_id = dept_entry['id']
                 mapping_status['department_found'] = True
-                if cat_path not in processed_categories:
-                    print(f"  ✅ Departamento encontrado: ID {dept_id}")
-                
+                mapping_status['department_id'] = dept_id
+
                 if len(parts) > 1:
                     # Categoría
-                    c_norm = normalize(parts[1], debug=cat_path not in processed_categories)
+                    c_norm = normalize(parts[1])
                     mapping_status['category'] = parts[1]
                     cat_entry = dept_entry['children'].get(c_norm)
+
                     if cat_entry:
                         mapping_status['category_found'] = True
                         cat_id = cat_entry['id']
-                        if cat_path not in processed_categories:
-                            print(f"  ✅ Categoría encontrada: ID {cat_id}")
-                        
+                        mapping_status['category_id'] = cat_id
+
                         if len(parts) > 2:
                             # Subcategoría
-                            s_norm = normalize(parts[2], debug=cat_path not in processed_categories)
+                            s_norm = normalize(parts[2])
                             mapping_status['subcategory'] = parts[2]
                             sub_id = cat_entry['children'].get(s_norm)
+
                             if sub_id:
                                 mapping_status['subcategory_found'] = True
+                                mapping_status['subcategory_id'] = sub_id
                                 cat_id = sub_id
-                                if cat_path not in processed_categories:
-                                    print(f"  ✅ Subcategoría encontrada: ID {cat_id}")
-                            elif cat_path not in processed_categories:
-                                print(f"  ❌ Subcategoría '{parts[2]}' no encontrada")
-                    elif cat_path not in processed_categories:
-                        print(f"  ❌ Categoría '{parts[1]}' no encontrada")
-            elif cat_path not in processed_categories:
-                print(f"  ❌ Departamento '{parts[0]}' no encontrado")
         
         # Ajuste final de lógica:
         if dept_id is not None and cat_id is None:
@@ -292,9 +426,20 @@ def map_ids_to_records(records, tree_map):
                 has_failures = True
             if len(parts) > 2 and not mapping_status['subcategory_found']:
                 has_failures = True
-        
+
         if has_failures:
             log_data['failed'].append(mapping_status)
+            # Guardar una copia del registro completo original para exportar a CSV
+            failed_record = rec.copy()
+            failed_record['_error_reason'] = []
+            if not mapping_status['department_found']:
+                failed_record['_error_reason'].append('Departamento no existe')
+            if len(parts) > 1 and not mapping_status['category_found']:
+                failed_record['_error_reason'].append('Categoría no existe')
+            if len(parts) > 2 and not mapping_status['subcategory_found']:
+                failed_record['_error_reason'].append('Subcategoría no existe')
+            failed_record['_error_reason'] = ', '.join(failed_record['_error_reason'])
+            log_data['failed_records'].append(failed_record)
         else:
             log_data['successful'].append(mapping_status)
         
@@ -369,9 +514,13 @@ def main():
     # 4. Mapear IDs
     mapped_records, log_data = map_ids_to_records(records, tree_map)
 
-    # 5. Generar reporte de log
-    log_filename = generate_log_report(log_data, args.output_file)
-    print(f"Reporte de categorías generado en {log_filename}")
+    # 5. Generar reportes de log (JSON detallado, Markdown resumen y CSV de fallidos)
+    json_log_filename, md_log_filename, csv_failed_filename = generate_log_reports(log_data, args.output_file, tree_map)
+    print(f"\n📄 Reportes generados:")
+    print(f"  - Log detallado JSON: {json_log_filename}")
+    print(f"  - Resumen Markdown: {md_log_filename}")
+    if log_data.get('failed_records'):
+        print(f"  - Registros fallidos CSV: {csv_failed_filename}")
 
     # 6. Escribir salida
     try:
