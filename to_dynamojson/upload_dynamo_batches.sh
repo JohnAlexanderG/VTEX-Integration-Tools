@@ -5,13 +5,13 @@
 # Fecha: $(date)
 
 echo "🚀 Iniciando carga masiva a DynamoDB..."
-echo "📊 Total de lotes a procesar: 850"
+echo "📊 Total de lotes a procesar: 764"
 echo ""
 
 # Contadores
 success_count=0
 error_count=0
-total_batches=850
+total_batches=764
 
 # Archivo de log para errores
 error_log="dynamo_upload_errors_$(date +%Y%m%d_%H%M%S).log"
@@ -39,7 +39,7 @@ echo "⏳ Comenzando carga de lotes..."
 echo ""
 
 # Loop principal para procesar todos los lotes
-for i in $(seq -f "%03g" 1 850); do
+for i in $(seq -f "%03g" 1 764); do
     batch_file="sku-vtex_items_batch_${i}.json"
 
     # Verificar que el archivo existe
