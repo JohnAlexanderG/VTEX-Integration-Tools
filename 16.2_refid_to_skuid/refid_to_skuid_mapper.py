@@ -23,10 +23,25 @@ Opciones:
     --key-field NAME    Campo que contiene RefId (default: detecta automáticamente)
     --report PREFIX     Prefijo para archivos de reporte
 
-Estructura del archivo de mapeo:
+Estructura del archivo de mapeo (formato simple):
 [
     { "Id": "5380", "RefId": "210794" },
     { "Id": "5381", "RefId": "210795" },
+    ...
+]
+
+Estructura del archivo de mapeo (formato con response anidado):
+[
+    {
+        "sku_data": {...},
+        "response": {
+            "Id": 11,
+            "RefId": "000013",
+            ...
+        },
+        "status_code": 200,
+        ...
+    },
     ...
 ]
 
@@ -84,47 +99,81 @@ def load_input_file(file_path, file_description="archivo"):
 
 def load_mapping_file(mapping_file):
     """
-    Carga el archivo de mapeo con estructura [{"Id": "...", "RefId": "..."}]
-    
+    Carga el archivo de mapeo con múltiples formatos soportados:
+    1. Formato simple: [{"Id": "...", "RefId": "..."}]
+    2. Formato anidado: [{"response": {"Id": ..., "RefId": "..."}, ...}]
+
     Args:
         mapping_file (str): Ruta al archivo de mapeo
-        
+
     Returns:
         dict: Diccionario {RefId: SkuId}
     """
     print(f"📂 Cargando archivo de mapeo: {mapping_file}")
     mapping_data = load_input_file(mapping_file, "archivo de mapeo")
-    
+
     if not isinstance(mapping_data, list):
         print("❌ El archivo de mapeo debe ser una lista de objetos")
         sys.exit(1)
-    
+
     # Construir diccionario de mapeo RefId -> SkuId
     refid_to_skuid = {}
     invalid_entries = 0
-    
+    format_detected = None
+
     for i, entry in enumerate(mapping_data):
         if not isinstance(entry, dict):
             print(f"⚠️  Entrada {i} no es un objeto, saltando...")
             invalid_entries += 1
             continue
-            
-        ref_id = entry.get('RefId')
-        sku_id = entry.get('Id')
-        
+
+        ref_id = None
+        sku_id = None
+
+        # Intentar detectar el formato en la primera entrada válida
+        if format_detected is None:
+            # Verificar si tiene formato anidado (response)
+            if 'response' in entry and isinstance(entry['response'], dict):
+                format_detected = 'nested'
+                print(f"🔍 Formato detectado: Estructura anidada con 'response'")
+            # Verificar formato simple
+            elif 'RefId' in entry and 'Id' in entry:
+                format_detected = 'simple'
+                print(f"🔍 Formato detectado: Estructura simple con campos directos")
+            else:
+                print(f"⚠️  No se pudo detectar el formato en la entrada {i}")
+
+        # Extraer RefId y SkuId según el formato
+        if format_detected == 'nested':
+            # Formato anidado: buscar dentro de 'response'
+            response = entry.get('response', {})
+            if isinstance(response, dict):
+                ref_id = response.get('RefId')
+                sku_id = response.get('Id')
+            else:
+                print(f"⚠️  Entrada {i}: 'response' no es un diccionario")
+                invalid_entries += 1
+                continue
+
+        elif format_detected == 'simple':
+            # Formato simple: campos directos
+            ref_id = entry.get('RefId')
+            sku_id = entry.get('Id')
+
+        # Validar que se encontraron ambos campos
         if not ref_id or not sku_id:
-            print(f"⚠️  Entrada {i} falta RefId o Id: {entry}")
+            print(f"⚠️  Entrada {i} falta RefId o Id: {entry if format_detected == 'simple' else entry.get('response', {})}")
             invalid_entries += 1
             continue
-        
+
         # Convertir a string para consistencia
         refid_to_skuid[str(ref_id)] = str(sku_id)
-    
+
     valid_mappings = len(refid_to_skuid)
     print(f"✅ Mapeo cargado: {valid_mappings} entradas válidas")
     if invalid_entries > 0:
         print(f"⚠️  {invalid_entries} entradas inválidas saltadas")
-    
+
     return refid_to_skuid
 
 
