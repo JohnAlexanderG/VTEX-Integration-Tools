@@ -22,7 +22,7 @@ python3 filter_price_list.py <vtex_products> <price_list> <output_prefix>
 
 ### Parámetros
 
-- `vtex_products`: Archivo CSV o JSON con productos de VTEX (campo requerido: `_SkuId (Not changeable)`)
+- `vtex_products`: Archivo CSV o JSON con productos de VTEX (campo requerido: `_SKUReferenceCode`)
 - `price_list`: Archivo CSV con lista de precios (campo requerido: `código producto`)
 - `output_prefix`: Prefijo para los archivos de salida
 
@@ -45,7 +45,7 @@ python3 filter_price_list.py data/vtex_skus.csv data/precios.csv data/filtered
 
 **CSV:**
 ```csv
-_SkuId (Not changeable),Product Name,Brand,Category
+_SKUReferenceCode,Product Name,Brand,Category
 12345,Product A,Brand X,Electronics
 67890,Product B,Brand Y,Home
 ```
@@ -54,7 +54,7 @@ _SkuId (Not changeable),Product Name,Brand,Category
 ```json
 [
   {
-    "_SkuId (Not changeable)": "12345",
+    "_SKUReferenceCode": "12345",
     "Product Name": "Product A"
   }
 ]
@@ -64,7 +64,7 @@ _SkuId (Not changeable),Product Name,Brand,Category
 ```json
 {
   "sku1": {
-    "_SkuId (Not changeable)": "12345",
+    "_SKUReferenceCode": "12345",
     "Product Name": "Product A"
   }
 }
@@ -195,7 +195,7 @@ Output Files Generated:
 ## Lógica de Matching
 
 **Campo de Comparación:**
-- **VTEX:** `_SkuId (Not changeable)`
+- **VTEX:** `_SKUReferenceCode`
 - **Precios:** `código producto`
 
 **Tipo de Match:**
