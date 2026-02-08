@@ -9,7 +9,15 @@ Ejemplo de uso:
 
 El script espera:
   - Entrada JSON: una lista de objetos que contengan al menos un campo (default: RefId) que coincida con los valores SKU del CSV.
+    Soporta múltiples formatos:
+    * Formato simple: {"RefId": "000013", ...}
+    * Formato anidado: {"sku_data": {"RefId": "000013"}, "ref_id": "000013", ...}
   - Entrada CSV: columnas incluyendo SKU, PRODUCTO, URL, y opcionalmente IMAGEN (usado para preservar orden).
+    Los SKUs en el CSV pueden venir en múltiples formatos que son normalizados automáticamente:
+    * Sin comillas: 000013, 000-013
+    * Con comillas dobles: "000013", "000-013"
+    * Con comillas simples: '000013', '000-013'
+    * Con espacios extras: " 000013 ", " '000013' "
 
 Salida:
   - JSON mapeando cada SKU coincidente a una lista de objetos descriptores de imagen listos para creación de archivos VTEX.
@@ -78,6 +86,41 @@ def validate_url(url: str, timeout: int = 10) -> dict:
         }
 
 
+def normalize_sku(sku_value: str) -> str:
+    """Normaliza un valor SKU removiendo comillas, espacios extras y convirtiendo a string.
+
+    Esta función maneja múltiples formatos de SKU que pueden aparecer en CSV:
+    - Con comillas dobles: "000013" → 000013
+    - Con comillas simples: '000013' → 000013
+    - Con espacios: " 000013 " → 000013
+    - Con guiones: "000-013" → 000-013 (se preservan)
+    - Valores numéricos: 13 → 000013 (se preserva el formato original)
+
+    Args:
+        sku_value: Valor SKU a normalizar (puede ser str, int, float)
+
+    Returns:
+        str: SKU normalizado sin comillas ni espacios extras
+    """
+    if sku_value is None:
+        return ""
+
+    # Convertir a string si es necesario
+    sku_str = str(sku_value)
+
+    # Remover espacios al inicio y final
+    sku_str = sku_str.strip()
+
+    # Remover comillas dobles y simples al inicio y final
+    # Esto maneja casos como: "000013", '000013', "000-013"
+    sku_str = sku_str.strip('"').strip("'")
+
+    # Remover espacios nuevamente por si había comillas con espacios: " '000013' "
+    sku_str = sku_str.strip()
+
+    return sku_str
+
+
 def slugify(value: str) -> str:
     """Convierte texto a formato slug: minúsculas, sin acentos, guiones en lugar de espacios."""
     # Slugify simplificado: minúsculas, quitar acentos, reemplazar no-alfanuméricos con guiones
@@ -123,27 +166,67 @@ def main():
         sys.exit(1)
 
     # Construir conjunto de identificadores SKU válidos desde JSON
+    # Soporta múltiples formatos:
+    # 1. Formato antiguo: {"RefId": "000013", ...}
+    # 2. Formato nuevo: {"sku_data": {"RefId": "000013"}, "ref_id": "000013", ...}
     valid_skus = set()
     for item in json_items:
+        ref_id_found = False
+        ref_id_value = None
+
+        # Intentar buscar directamente en el nivel raíz (formato antiguo o ref_id en formato nuevo)
         if args.json_key in item:
-            valid_skus.add(str(item[args.json_key]))
-        else:
-            # intentar fallback insensible a mayúsculas
+            ref_id_value = item[args.json_key]
+            ref_id_found = True
+
+        # Intentar buscar en sku_data (formato nuevo)
+        elif "sku_data" in item and isinstance(item["sku_data"], dict):
+            if args.json_key in item["sku_data"]:
+                ref_id_value = item["sku_data"][args.json_key]
+                ref_id_found = True
+
+        # Intentar buscar ref_id en nivel raíz (formato nuevo - campo alternativo)
+        if not ref_id_found and "ref_id" in item and args.json_key.lower() == "refid":
+            ref_id_value = item["ref_id"]
+            ref_id_found = True
+
+        # Si aún no se encuentra, intentar fallback insensible a mayúsculas en nivel raíz
+        if not ref_id_found:
             for k in item:
                 if k.lower() == args.json_key.lower():
-                    valid_skus.add(str(item[k]))
+                    ref_id_value = item[k]
+                    ref_id_found = True
                     break
+
+        # Si todavía no se encuentra, intentar en sku_data con fallback insensible a mayúsculas
+        if not ref_id_found and "sku_data" in item and isinstance(item["sku_data"], dict):
+            for k in item["sku_data"]:
+                if k.lower() == args.json_key.lower():
+                    ref_id_value = item["sku_data"][k]
+                    break
+
+        # Normalizar y agregar el SKU encontrado
+        if ref_id_value is not None:
+            normalized_sku = normalize_sku(ref_id_value)
+            if normalized_sku:  # Solo agregar si no está vacío después de normalizar
+                valid_skus.add(normalized_sku)
+
     if not valid_skus:
         print(f"Advertencia: no se extrajeron SKUs del JSON usando clave '{args.json_key}'.", file=sys.stderr)
+    else:
+        print(f"SKUs extraídos exitosamente: {len(valid_skus)} únicos encontrados")
 
     # Leer CSV y agrupar filas por SKU
+    # Normalizar SKUs del CSV para manejar comillas y espacios
     groups = defaultdict(list)
     not_found_rows = []
     with open(args.csv_input, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         headers = reader.fieldnames or []
         for row in reader:
-            sku = row.get(args.csv_sku_column, "").strip()
+            sku_raw = row.get(args.csv_sku_column, "")
+            sku = normalize_sku(sku_raw)
+
             if sku == "":
                 continue
             if sku not in valid_skus:
