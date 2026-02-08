@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+
+··································································
+  Deprecated script, only use on intiail load do not use anymore
+  (Script obsoleto, utilícelo solo en la carga inicial, no lo utilice más.)
+··································································
+
+
 update_vtex_products.py
 
 Script de gestión masiva de productos VTEX que actualiza el estado de productos
