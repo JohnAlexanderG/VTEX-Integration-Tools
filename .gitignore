@@ -24,9 +24,17 @@ Thumbs.db
 *.json
 *.csv
 *.md
+*.ndjson
 !README.md
 !CLAUDE.md
 !.env.example
+
+# Data files (spreadsheets, exports, binaries)
+*.xls
+*.xlsx
+*.xlsb
+*.xlsm
+*.xml
 
 # Logs
 *.log

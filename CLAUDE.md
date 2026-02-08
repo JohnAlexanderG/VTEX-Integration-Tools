@@ -12,12 +12,13 @@ This is a collection of Python data transformation utilities for VTEX e-commerce
 The codebase implements a microservice-style architecture with numbered directories representing a complete e-commerce catalog creation pipeline:
 
 1. **Data Import & Transformation** (01-03): CSV ingestion, field normalization, category processing
-2. **Data Unification & Validation** (04-05): Dataset merging, missing record detection  
+2. **Data Unification & Validation** (04-05): Dataset merging, missing record detection
 3. **VTEX API Integration** (06-08): Category mapping, brand ID resolution using VTEX APIs
 4. **Validation & Operations** (09-11): Product readiness analysis, bulk updates, VTEX product formatting
 5. **Catalog Creation Workflow** (12-15): Complete product and SKU creation in VTEX
 6. **Media & Asset Management** (16-18): SKU image handling, file management, content operations
-7. **Utility Operations** (19+): Data filtering, format conversion, specialized transformations
+7. **Utility Operations** (19-23): Data filtering, format conversion, specialized transformations
+8. **Category Hierarchy Creation** (24): Automated VTEX category structure creation from flat data
 
 ### Extended Data Flow Pattern
 ```
@@ -29,10 +30,11 @@ SKU Creation → Media Upload → Asset Management → Final Verification
 ## Quick Start for Claude Code
 
 **Most Common Tasks**:
-1. **Process new CSV data**: Start at step 01 and follow the numbered sequence
-2. **Add new products to VTEX**: Use steps 12-15 for complete catalog creation
-3. **Upload images**: Use steps 16-17 for media management
-4. **Generate reports**: Use step 09 for product readiness analysis
+1. **Create category structure**: Use step 24 to create complete category hierarchy before products
+2. **Process new CSV data**: Start at step 01 and follow the numbered sequence
+3. **Add new products to VTEX**: Use steps 12-15 for complete catalog creation
+4. **Upload images**: Use steps 16-17 for media management
+5. **Generate reports**: Use step 09 for product readiness analysis
 
 **Essential Commands**:
 - `python3 [script] --help` - Get usage help for any script
@@ -93,11 +95,16 @@ python3 15_vtex_sku_create/vtex_sku_create.py vtex_skus.json
 python3 16_merge_sku_images/merge_sku_images.py products.json images.csv
 python3 17_upload_sku_images/upload_sku_images.py sku_images.json
 python3 18_delete_sku_files/delete_sku_files.py sku_list.json
+
+# Category Hierarchy Creation (24)
+python3 24_vtex_category_creator/vtex_category_creator.py category_data.json --dry-run  # Test first
+python3 24_vtex_category_creator/vtex_category_creator.py category_data.json  # Create for real
 ```
 
 ### Utility Commands
 ```bash
 # Data conversion utilities
+python3 01_csv_to_json/xlsb_to_csv.py input.xlsb output.csv
 python3 translate_keys/translate_keys.py input.json translated.json --indent 4
 python3 json_to_csv/json_to_csv.py input.json output.csv
 python3 19_csv_json_status_filter/csv_json_status_filter.py input.csv output.json
@@ -111,6 +118,11 @@ python3 tranform_font-ttf-woff/ttf2woff2_converter.py fonts/ woff2-fonts/
 
 # SKU filtering utility
 python3 filtrar_sku/filtrar_sku.py archivo1.json archivo2.json  # Filters pricing data based on existing SKU references
+
+# DynamoDB CSV to JSON conversion
+python3 43_dynamodb_to_json/dynamodb_to_json.py input.csv output.json --indent 4
+python3 43_dynamodb_to_json/dynamodb_to_json.py input.csv output.json --vtex-data-column my_column  # Custom column name
+cat export.csv | python3 43_dynamodb_to_json/dynamodb_to_json.py - - -i 4  # Pipeline mode
 ```
 
 ### Testing and Validation
@@ -198,6 +210,19 @@ python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records
 - **Cannot Create**: Missing BrandId (critical VTEX requirement)
 
 ## Extended Workflow Operations
+
+### Category Hierarchy Creation (24)
+- **Automated 3-Level Structure**: Creates Departments → Categories → Subcategories/Lines from flat JSON
+- **Idempotent Design**: Re-executions skip existing categories without errors
+- **Pre-Verification**: Fetches existing VTEX category tree before creating to avoid duplicates
+- **Sequential Processing**: Creates level 1 (departments) first, then level 2, then level 3 to ensure parent categories exist
+- **Unicode Normalization**: Robust name matching by removing accents (e.g., "Decoración" matches "decoracion")
+- **Dry-Run Mode**: Test mode that simulates operations without making actual API calls
+- **Comprehensive Reporting**: Exports created/skipped/failed categories with detailed markdown reports
+- **Rate Limiting**: 1-second delays between creations, no delays for skipped categories
+- **Input Format**: Flat JSON with `CATEGORIA` (dept), `SUBCATEGORIA` (cat), `LINEA` (subcat) fields
+- **Use Case**: Run BEFORE product creation to establish complete category structure in VTEX
+- **Performance**: ~27 minutes for 1632 new categories, ~3 minutes if all exist (idempotent re-run)
 
 ### Catalog Creation Workflow (12-15)
 - **Product Formatting** (11): Transform classified products to VTEX API format
