@@ -1,69 +1,83 @@
 # 44_stock_diff_filter
 
-## Descripción
+## Descripcion
 
-Filtra inventario completo para identificar registros que necesitan actualizarse en VTEX. Compara contra:
-1. SKUs válidos en VTEX
-2. Inventario ya procesado
-3. Inventario actual en VTEX
+Compara inventario ERP contra inventario VTEX (ecommerce) para identificar registros desactualizados que necesitan actualizarse. Genera archivos CSV y NDJSON listos para actualizacion, ademas de un reporte detallado en Markdown.
 
-Genera archivos CSV y NDJSON listos para actualización en VTEX, además de un reporte detallado en Markdown.
+**Logica central:** el inventario VTEX debe ser espejo del ERP. Este script detecta las diferencias.
 
 ## Requisitos
 
 - Python 3.7+
-- Dependencias: `pandas`, `xlrd`
+- Dependencias: `pandas`, `xlrd` (para .xls), `openpyxl` (para .xlsx)
 
-Instalar con:
 ```bash
-pip install pandas xlrd
+pip install pandas xlrd openpyxl
 ```
 
 ## Uso
 
 ```bash
-python3 stock_diff_filter.py <vtex_file> <processed_file> <complete_file> <vtex_inventory_file> <output_prefix>
+# Basico: ERP vs VTEX (recomendado)
+python3 stock_diff_filter.py <vtex_file> <complete_file> <vtex_inventory_file> <output_prefix>
+
+# Con archivo procesado como capa extra de dedup (opcional)
+python3 stock_diff_filter.py <vtex_file> <complete_file> <vtex_inventory_file> <output_prefix> --processed <file.csv>
 ```
 
 ### Argumentos
 
-- `vtex_file` - Archivo .xls con SKUs VTEX (columna `_SKUReferenceCode`)
-- `processed_file` - CSV con inventario ya procesado (columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`)
-- `complete_file` - CSV con inventario completo (columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`)
-- `vtex_inventory_file` - Archivo .xls con inventario actual VTEX (columnas: `RefId`, `WarehouseId`, `TotalQuantity`)
-- `output_prefix` - Prefijo para archivos de salida
+| Argumento | Tipo | Descripcion |
+|-----------|------|-------------|
+| `vtex_file` | Posicional | Archivo .xls/.xlsx/.csv con SKUs VTEX (columna `_SKUReferenceCode` o `SKU reference code`) |
+| `complete_file` | Posicional | CSV con inventario completo ERP (columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`) |
+| `vtex_inventory_file` | Posicional | Archivo .xls/.xlsx/.csv con inventario VTEX actual (columnas: `RefId`, `WarehouseId`, `TotalQuantity`) |
+| `output_prefix` | Posicional | Prefijo para archivos de salida |
+| `--processed`, `-p` | Opcional | CSV con inventario ya procesado para dedup extra |
+| `--dry-run` | Flag | Analizar sin escribir archivos de salida |
+| `--verbose`, `-v` | Flag | Logs detallados de debug |
+| `--quiet`, `-q` | Flag | Solo errores y resultado final |
 
-### Ejemplo
+### Ejemplos
 
 ```bash
-python3 stock_diff_filter.py vtex_skus.xls processed.csv complete.csv estoque.xls nivelej__20260205
+# Comparacion directa ERP vs VTEX
+python3 stock_diff_filter.py vtex_skus.xlsx complete.csv estoque.xls nivelej_20260212
+
+# Con dedup extra contra archivo procesado
+python3 stock_diff_filter.py vtex_skus.xlsx complete.csv estoque.xls nivelej_20260212 --processed uploaded.csv
+
+# Dry-run para analizar sin generar archivos
+python3 stock_diff_filter.py vtex_skus.xlsx complete.csv estoque.xls nivelej_20260212 --dry-run
+
+# Verbose para debugging
+python3 stock_diff_filter.py vtex_skus.xlsx complete.csv estoque.xls nivelej_20260212 --dry-run -v
 ```
 
 Genera:
-- `nivelej__20260205_to_update.csv`
-- `nivelej__20260205_to_update.ndjson`
-- `nivelej__20260205_REPORT.md`
+- `nivelej_20260212_to_update.csv`
+- `nivelej_20260212_to_update.ndjson`
+- `nivelej_20260212_REPORT.md`
 
 ## Formatos de Entrada
 
-### vtex_file (.xls)
-Requiere columnas: `_SKUReferenceCode`, `_SkuId` (opcional)
-
-### processed_file (CSV)
-Requiere columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`
+### vtex_file (.xls/.xlsx/.csv)
+Requiere columnas: `_SKUReferenceCode` (o `SKU reference code`), `_SkuId` (o `SKU ID`, opcional para NDJSON)
 
 ### complete_file (CSV)
-Requiere columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`
+Inventario completo del ERP. Requiere columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`
 
-### vtex_inventory_file (.xls)
-Requiere columnas: `RefId`, `WarehouseId`, `TotalQuantity`
+### vtex_inventory_file (.xls/.xlsx/.csv)
+Inventario actual de VTEX. Requiere columnas: `RefId`, `WarehouseId`, `TotalQuantity`
+
+### --processed (CSV, opcional)
+Inventario ya enviado previamente. Requiere columnas: `CODIGO SKU`, `CODIGO SUCURSAL`, `EXISTENCIA`
 
 ## Formatos de Salida
 
 ### {prefix}_to_update.csv
-CSV con todos los registros que necesitan actualización en VTEX.
+CSV con todos los registros que necesitan actualizacion en VTEX.
 
-**Ejemplo:**
 ```csv
 CODIGO SKU,CODIGO SUCURSAL,EXISTENCIA,Otros...
 000050,095,100,Data1
@@ -71,44 +85,47 @@ CODIGO SKU,CODIGO SUCURSAL,EXISTENCIA,Otros...
 ```
 
 ### {prefix}_to_update.ndjson
-NDJSON listo para upload a VTEX con campos específicos para inventario.
+NDJSON listo para upload a VTEX con campos especificos para inventario.
 
-**Ejemplo:**
 ```json
 {"_SkuId":123,"_SKUReferenceCode":"000050","warehouseId":"095","quantity":100,"unlimitedQuantity":false}
 {"_SkuId":124,"_SKUReferenceCode":"000099","warehouseId":"001","quantity":50,"unlimitedQuantity":false}
 ```
 
 ### {prefix}_REPORT.md
-Reporte markdown detallado con:
-- Estadísticas de fuentes de datos
-- Análisis de filtrado
-- Distribución de almacenes
-- Lógica de procesamiento aplicada
+Reporte markdown con estadisticas, analisis de filtrado y distribucion de almacenes.
 
-## Lógica de Funcionamiento
+## Logica de Funcionamiento
 
-1. Cargar SKUs válidos desde VTEX (.xls) con opción de mapeo a `_SkuId`
-2. Cargar inventario ya procesado (CSV) como lookup (SKU, ALMACEN) → CANTIDAD
-3. Cargar inventario VTEX actual (.xls) como lookup (RefId, WarehouseId) → CANTIDAD
-4. Para cada registro del inventario completo:
+1. Cargar SKUs validos desde VTEX (.xls/.xlsx/.csv) con opcion de mapeo a `_SkuId`
+2. Cargar inventario VTEX actual (.xls/.xlsx/.csv) como lookup (RefId, WarehouseId) -> CANTIDAD
+3. (Opcional) Cargar inventario ya procesado (CSV) como lookup extra de dedup
+4. Para cada registro del inventario ERP completo:
    - Normalizar SKU y ALMACEN (ceros a izquierda para almacenes cortos)
-   - Si SKU no existe en VTEX → omitir
-   - Si (SKU, ALMACEN, CANTIDAD) idéntico al procesado → omitir
-   - Si (SKU, ALMACEN, CANTIDAD) idéntico al inventario VTEX actual → omitir
-   - Si es nuevo o cantidad diferente → incluir en salida
-5. Generar reporte con estadísticas y análisis
+   - Si SKU no existe en VTEX -> omitir
+   - Si (SKU, ALMACEN, CANTIDAD) identico al inventario VTEX actual -> omitir
+   - (Si --processed) Si identico al procesado -> omitir
+   - Si es nuevo o cantidad diferente -> incluir en salida
+5. Generar reporte con estadisticas y analisis
 
-## Normalización de Datos
+## Por que processed es opcional
 
-- **SKU**: Espacios eliminados, ceros a izquierda preservados, .0 removido (ej: 50.0 → 50)
-- **ALMACEN**: Espacios eliminados, números cortos (<3 dígitos) rellenados a 3 dígitos (ej: 95 → 095, 1 → 001)
-- **CANTIDAD**: Convertida a entero (float → int)
+El archivo `processed.csv` era una capa extra de deduplicacion para evitar re-enviar actualizaciones. Sin embargo, si `estoque.xls` (inventario VTEX) es un export reciente, ya refleja todo lo procesado anteriormente. Ademas, usar processed puede causar inconsistencias: si el ERP cambio un valor durante la ventana de tiempo entre el ultimo upload y el nuevo export, el processed saltaria ese registro pensando que "ya se proceso", cuando en realidad el ERP tiene un valor mas reciente.
+
+**Recomendacion:** usar el modo directo (sin --processed) para garantizar que VTEX siempre sea espejo del ERP.
+
+## Normalizacion de Datos
+
+- **SKU**: Espacios eliminados, ceros a izquierda preservados, .0 removido (ej: 50.0 -> 50)
+- **ALMACEN**: Espacios eliminados, numeros cortos (<3 digitos) rellenados a 3 digitos (ej: 95 -> 095, 1 -> 001)
+- **CANTIDAD**: Convertida a entero (float -> int), NaN manejado correctamente
 
 ## Notas/Caveats
 
-- Archivos .xls limitados a 65,536 filas (advertencia si alcanza límite)
-- NDJSON requiere que `_SkuId` esté disponible; registros sin `_SkuId` se omiten de NDJSON pero se incluyen en CSV
-- Soporta múltiples hojas en archivos .xls (se concatenan automáticamente)
+- Archivos .xls limitados a 65,536 filas (advertencia automatica si alcanza limite)
+- NDJSON requiere que `_SkuId` este disponible; registros sin `_SkuId` se omiten de NDJSON pero se incluyen en CSV
+- Soporta multiples hojas en archivos .xls/.xlsx (se concatenan automaticamente)
 - Muestra progreso cada 100,000 registros procesados
-- Genera logs detallados de primeras coincidencias y mismatches para debugging
+- Streaming write: CSV y NDJSON se escriben registro por registro (bajo uso de memoria)
+- `--dry-run` analiza sin escribir archivos de salida
+- `--verbose` muestra primeros matches, muestras de datos y logs de debug
