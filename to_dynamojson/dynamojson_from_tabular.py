@@ -25,8 +25,41 @@ import math
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional
+
+# ------------------------------
+# VTEX export column name mapping
+# ------------------------------
+
+VTEX_COLUMN_MAP = {
+    "Product ID": "_ProductId",
+    "Product Name": "_ProductName",
+    "SKU ID": "_SkuId",
+    "SKU name": "_SkuName",
+    "SKU reference code": "_SKUReferenceCode",
+}
+
+# Columns consumed to compute _IsActive; excluded from the final DynamoDB item.
+_ACTIVE_PRODUCT_COL = "Active product"
+_ACTIVE_SKU_COL = "Active SKU"
+
+
+def apply_column_map(rows: List[Dict[str, Any]], column_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Rename column keys in each row according to column_map.
+
+    Keys not present in column_map are kept unchanged.
+    """
+    mapped = []
+    for row in rows:
+        new_row = {}
+        for k, v in row.items():
+            new_key = column_map.get(k, k)
+            new_row[new_key] = v
+        mapped.append(new_row)
+    return mapped
+
 
 # ------------------------------
 # Helpers: key cleaning & type inference & map
@@ -167,18 +200,46 @@ def read_rows(input_path: str) -> List[Dict[str, Any]]:
 # Conversion of rows -> DynamoDB JSON items
 # ------------------------------
 
+def _resolve_is_active(row: Dict[str, Any]) -> bool:
+    """Return True only if both 'Active product' and 'Active SKU' columns are truthy."""
+    def _col_is_true(val: Any) -> bool:
+        if val is None:
+            return False
+        b = _is_truthy_str(str(val))
+        return b is True
+
+    return _col_is_true(row.get(_ACTIVE_PRODUCT_COL)) and _col_is_true(row.get(_ACTIVE_SKU_COL))
+
+
 def row_to_item(
     row: Dict[str, Any],
     *,
     all_as_string: bool,
     empty_as_null: bool,
-    string_cols: Optional[set] = None
+    string_cols: Optional[set] = None,
+    exclude_cols: Optional[set] = None
 ) -> Optional[Dict[str, Any]]:
     item: Dict[str, Any] = {}
     force_cols = string_cols or set()
+    skip_cols = exclude_cols or set()
+
+    # Compute _IsActive from the source row before iterating (columns are excluded below)
+    is_active = _resolve_is_active(row)
+
+    # Columns consumed by computed fields; always excluded from pass-through
+    computed_source_cols = {_ACTIVE_PRODUCT_COL, _ACTIVE_SKU_COL}
+
     for k, v in row.items():
         # Clean header names by removing parenthetical comments
         key = clean_key(str(k))
+
+        # Skip columns consumed to compute derived fields
+        if key in computed_source_cols:
+            continue
+
+        # Skip excluded columns
+        if key in skip_cols:
+            continue
 
         # Skip items that have NULL _SKUReferenceCode to avoid errors
         if key == "_SKUReferenceCode":
@@ -197,6 +258,12 @@ def row_to_item(
                     item[key] = {"S": s}
         else:
             item[key] = to_dynamo_attr(v, all_as_string=all_as_string, empty_as_null=empty_as_null)
+
+    # Computed fields
+    item["_IsActive"] = {"BOOL": is_active}
+    item["_validated_at"] = {"S": datetime.now(timezone.utc).isoformat()}
+    item["_product_validated"] = {"BOOL": is_active}
+
     return item
 
 
@@ -205,11 +272,12 @@ def rows_to_put_requests(
     *,
     all_as_string: bool,
     empty_as_null: bool,
-    string_cols: Optional[set] = None
+    string_cols: Optional[set] = None,
+    exclude_cols: Optional[set] = None
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in rows:
-        item = row_to_item(r, all_as_string=all_as_string, empty_as_null=empty_as_null, string_cols=string_cols)
+        item = row_to_item(r, all_as_string=all_as_string, empty_as_null=empty_as_null, string_cols=string_cols, exclude_cols=exclude_cols)
         if item is not None:  # Skip items with NULL _SKUReferenceCode
             out.append({"PutRequest": {"Item": item}})
     return out
@@ -227,6 +295,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--ndjson", action="store_true", help="Write Items as newline-delimited JSON (one Item per line), without PutRequest wrapper.")
     p.add_argument("--all-as-string", action="store_true", help="Force all non-empty values to DynamoDB S (string) type.")
     p.add_argument("--no-empty-as-null", action="store_true", help="Do not convert empty strings to NULL; keep them as empty S.")
+    p.add_argument("--no-column-map", action="store_true", help="Disable automatic VTEX column name mapping (e.g., 'Product ID' -> '_ProductId').")
+    p.add_argument("--exclude-cols", default="", help="Comma-separated list of column names to exclude from the output (e.g., '_ProductName,_SkuName').")
     p.add_argument("--string-cols", default="", help="Comma-separated list of column names to force as String (S). Column names are cleaned like headers (e.g., '_SkuId (Not changeable)' -> '_SkuId').")
     return p.parse_args(argv)
 
@@ -234,6 +304,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
     rows = read_rows(args.input)
+    if not args.no_column_map:
+        rows = apply_column_map(rows, VTEX_COLUMN_MAP)
     empty_as_null = not args.no_empty_as_null
 
     # Columns to force as String (S)
@@ -241,6 +313,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if getattr(args, "string_cols", None):
         raw_cols = [c.strip() for c in args.string_cols.split(",") if c.strip()]
         string_cols = {clean_key(c) for c in raw_cols}
+
+    # Columns to exclude from output
+    exclude_cols = set()
+    if getattr(args, "exclude_cols", None):
+        raw_excl = [c.strip() for c in args.exclude_cols.split(",") if c.strip()]
+        exclude_cols = {clean_key(c) for c in raw_excl}
 
     # Compute default output
     if args.output:
@@ -257,13 +335,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Write one Item per line
         with open(out_path, "w", encoding="utf-8") as f:
             for r in rows:
-                item = row_to_item(r, all_as_string=args.all_as_string, empty_as_null=empty_as_null, string_cols=string_cols)
+                item = row_to_item(r, all_as_string=args.all_as_string, empty_as_null=empty_as_null, string_cols=string_cols, exclude_cols=exclude_cols)
                 if item is not None:  # Skip items with NULL _SKUReferenceCode
                     f.write(json.dumps(item, ensure_ascii=False))
                     f.write("\n")
     else:
         # Batch-write format (if table provided) or list of PutRequests
-        put_reqs = rows_to_put_requests(rows, all_as_string=args.all_as_string, empty_as_null=empty_as_null, string_cols=string_cols)
+        put_reqs = rows_to_put_requests(rows, all_as_string=args.all_as_string, empty_as_null=empty_as_null, string_cols=string_cols, exclude_cols=exclude_cols)
         if args.table_name:
             payload = {args.table_name: put_reqs}
         else:
