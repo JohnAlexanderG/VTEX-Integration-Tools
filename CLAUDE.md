@@ -19,6 +19,7 @@ The codebase implements a microservice-style architecture with numbered director
 6. **Media & Asset Management** (16-18): SKU image handling, file management, content operations
 7. **Utility Operations** (19-23): Data filtering, format conversion, specialized transformations
 8. **Category Hierarchy Creation** (24): Automated VTEX category structure creation from flat data
+9. **Price Management** (29): SKU price consultation and bulk deletion via VTEX Pricing API
 
 ### Extended Data Flow Pattern
 ```
@@ -99,6 +100,14 @@ python3 18_delete_sku_files/delete_sku_files.py sku_list.json
 # Category Hierarchy Creation (24)
 python3 24_vtex_category_creator/vtex_category_creator.py category_data.json --dry-run  # Test first
 python3 24_vtex_category_creator/vtex_category_creator.py category_data.json  # Create for real
+
+# Price Management (29)
+python3 29_vtex_price_fetcher/vtex_price_fetcher.py reference_codes.csv                          # Fetch prices
+python3 29_vtex_price_fetcher/vtex_price_fetcher.py input.csv -o precios.csv -r reporte.md       # Custom output
+python3 29_vtex_price_fetcher/vtex_price_fetcher.py input.csv --column SKU --delay 0.5           # Custom column/delay
+python3 29_vtex_price_fetcher/vtex_price_deleter.py price_results_20260304_143000.csv --dry-run  # Test deletion
+python3 29_vtex_price_fetcher/vtex_price_deleter.py price_results_20260304_143000.csv            # Delete prices
+python3 29_vtex_price_fetcher/vtex_price_deleter.py input.csv --delay 1.0 --column referenceCode
 ```
 
 ### Utility Commands
@@ -236,6 +245,13 @@ python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records
 - **Media Validation** (16.2): RefId to SkuId mapping for accurate image associations
 - **Image Upload** (17): Batch upload images to VTEX SKUs with URL validation
 - **File Cleanup** (18): Remove obsolete SKU files and manage catalog assets
+
+### Price Management (29)
+- **Price Fetching** (`vtex_price_fetcher.py`): Queries the VTEX Pricing API (`GET /pricing/prices/{itemId}`) for each `referenceCode` in an input CSV. Exports a CSV with found prices (HTTP 200) including `basePrice`, `costPrice`, `listPrice`, `markup`, and per-`tradePolicyId` fixed prices. Generates a Markdown report with stats. Handles rate limiting (delay + retry on HTTP 429).
+- **Price Deletion** (`vtex_price_deleter.py`): Reads the CSV output from `vtex_price_fetcher.py`, deduplicates by `referenceCode`, and executes `DELETE /pricing/prices/{itemId}` for each unique item. Supports `--dry-run` mode to simulate without real deletions. Exports an errors CSV and a Markdown report. Designed as a two-step workflow: fetch first to verify, then delete.
+- **Typical workflow**: Run fetcher → review output CSV → run deleter with `--dry-run` → run deleter for real
+- **Output files**: `price_results_{timestamp}.csv`, `price_report_{timestamp}.md`, `price_delete_report_{timestamp}.md`, `price_delete_errors_{timestamp}.csv`
+- **CSV output columns**: `referenceCode`, `basePrice`, `costPrice`, `listPrice`, `markup`, `tradePolicyId`, `fixedPrice`, `fixedListPrice`, `minQuantity`, `dateRange_from`, `dateRange_to`
 
 ### Data Processing Extensions (19+)
 - **Status Filtering** (19): Filter datasets based on status conditions and criteria

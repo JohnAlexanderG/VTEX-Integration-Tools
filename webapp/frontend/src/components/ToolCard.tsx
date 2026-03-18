@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Play, Square, ChevronDown, ChevronUp, AlertTriangle, Download } from 'lucide-react'
 import type { Tool, JobStatus } from '../types'
 import { runTool, getFileDownloadUrl } from '../api/client'
@@ -37,6 +37,7 @@ function StatusBadge({ status }: { status: JobStatus | null }) {
 }
 
 export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onComplete }: Props) {
+  const cardRef = useRef<HTMLDivElement>(null)
   const [formValues, setFormValues] = useState<Record<string, FieldValue>>(() => {
     const defaults: Record<string, FieldValue> = {}
     for (const inp of tool.inputs) {
@@ -92,6 +93,12 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
       const result = await runTool(tool.id, params, files)
       setJobId(result.job_id)
       setShowLogs(true)
+      // After the log panel expands, keep the card header in view
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al ejecutar')
     }
@@ -106,7 +113,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+    <div ref={cardRef} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 border-b border-gray-800">
         <div className="flex items-start justify-between gap-4">
@@ -158,7 +165,18 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
           {jobId && (
             <button
-              onClick={() => setShowLogs((v) => !v)}
+              onClick={() => {
+                setShowLogs((v) => {
+                  if (!v) {
+                    requestAnimationFrame(() => {
+                      requestAnimationFrame(() => {
+                        cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      })
+                    })
+                  }
+                  return !v
+                })
+              }}
               className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200"
             >
               {showLogs ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
