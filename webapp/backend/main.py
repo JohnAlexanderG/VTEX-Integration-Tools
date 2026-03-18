@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 from dotenv import dotenv_values, set_key
 from fastapi import FastAPI, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -523,13 +524,49 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "tool_price_fetcher",
-        "name": "Obtener precios de VTEX",
-        "shortName": "Obtener precios",
-        "description": "Obtiene precios del catálogo VTEX.",
+        "name": "Consultar precios VTEX (Price Fetcher)",
+        "shortName": "Consultar precios",
+        "description": "Consulta la API de pricing VTEX para cada referenceCode en un CSV. Exporta un CSV con precios encontrados y un reporte Markdown con estadísticas.",
         "category": "tools",
         "script": "29_vtex_price_fetcher/vtex_price_fetcher.py",
         "requires_vtex": True,
-        "inputs": [],
+        "inputs": [
+            {"name": "input_file", "type": "file", "label": "CSV con referenceCodes", "required": True,
+             "accept": ".csv", "position": 0, "role": "input_file"},
+            {"name": "output", "type": "text", "label": "CSV de salida (precios encontrados)",
+             "default": "price_results.csv", "flag": "--output", "role": "output_file"},
+            {"name": "report", "type": "text", "label": "Reporte Markdown",
+             "default": "price_report.md", "flag": "--report", "role": "output_file"},
+            {"name": "column", "type": "text", "label": "Columna de referenceCodes en el CSV",
+             "default": "referenceCode", "flag": "--column"},
+            {"name": "delay", "type": "number", "label": "Delay entre requests (seg)", "default": 0.2,
+             "flag": "--delay"},
+            {"name": "timeout", "type": "number", "label": "Timeout por request (seg)", "default": 30,
+             "flag": "--timeout"},
+        ],
+    },
+    {
+        "id": "tool_price_deleter",
+        "name": "Eliminar precios VTEX (Price Deleter)",
+        "shortName": "Eliminar precios",
+        "description": "Ejecuta DELETE en la API de pricing VTEX para cada referenceCode único del CSV generado por el Price Fetcher. Soporta modo dry-run para simular sin eliminar.",
+        "category": "tools",
+        "script": "29_vtex_price_fetcher/vtex_price_deleter.py",
+        "requires_vtex": True,
+        "inputs": [
+            {"name": "input_file", "type": "file", "label": "CSV de precios (salida del Price Fetcher)",
+             "required": True, "accept": ".csv", "position": 0, "role": "input_file"},
+            {"name": "report", "type": "text", "label": "Reporte Markdown",
+             "default": "price_delete_report.md", "flag": "--report", "role": "output_file"},
+            {"name": "column", "type": "text", "label": "Columna de referenceCodes en el CSV",
+             "default": "referenceCode", "flag": "--column"},
+            {"name": "delay", "type": "number", "label": "Delay entre requests (seg)", "default": 0.5,
+             "flag": "--delay"},
+            {"name": "timeout", "type": "number", "label": "Timeout por request (seg)", "default": 30,
+             "flag": "--timeout"},
+            {"name": "dry_run", "type": "checkbox", "label": "Simular sin eliminar (dry-run)",
+             "flag": "--dry-run"},
+        ],
     },
     {
         "id": "tool_price_diff",
@@ -882,13 +919,22 @@ async def run_tool(tool_id: str, request: Request):
     # Save uploaded files — they arrive as file__{field_name}
     file_paths: Dict[str, str] = {}
     for key, value in form.multi_items():
-        if key.startswith("file__") and isinstance(value, UploadFile) and value.filename:
+        if key.startswith("file__") and isinstance(value, StarletteUploadFile):
             field_name = key[6:]  # strip "file__"
-            safe_name = f"_input_{value.filename}"
+            filename = value.filename or field_name
+            safe_name = f"_input_{filename}"
             dest = job_dir / safe_name
             content = await value.read()
             dest.write_bytes(content)
             file_paths[field_name] = str(dest)
+
+    # Validate required file inputs are present
+    for inp in tool["inputs"]:
+        if inp.get("type") == "file" and inp.get("required") and inp["name"] not in file_paths:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"El archivo requerido '{inp['label']}' no fue recibido. Por favor vuelve a seleccionar el archivo e intenta de nuevo."},
+            )
 
     # For output files: redirect them into job_dir
     for inp in tool["inputs"]:
