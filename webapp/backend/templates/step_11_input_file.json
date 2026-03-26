@@ -1,0 +1,26 @@
+[
+    {
+        "SKU": "176391",
+        "RefId": "176391",
+        "Name": "Lámpara LED 10W",
+        "Description": "LAMPARA LED 10W BAJO CONSUMO BASE E14",
+        "CategoryPath": "Iluminación/Interior/LED",
+        "DepartmentId": 5,
+        "CategoryId": 12,
+        "BrandId": 8,
+        "Weight": 0.5,
+        "Price": 250.00
+    },
+    {
+        "SKU": "176392",
+        "RefId": "176392",
+        "Name": "Reflector 50W",
+        "Description": "REFLECTOR 50W EXTERIOR BASE E27",
+        "CategoryPath": "Iluminación/Exterior/Reflectores",
+        "DepartmentId": 5,
+        "CategoryId": 13,
+        "BrandId": 9,
+        "Weight": 1.2,
+        "Price": 480.00
+    }
+]

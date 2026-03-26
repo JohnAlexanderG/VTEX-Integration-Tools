@@ -1,0 +1,24 @@
+[
+    {
+        "SKU": "176391",
+        "UPC": "123456789012",
+        "Nombre": "Lámpara LED 10W",
+        "Descripción": "Lámpara de bajo consumo",
+        "Categoría": "Iluminación",
+        "SUBCATEGORIA": "Interior",
+        "LINEA": "LED",
+        "Peso": "0.5",
+        "Precio Sugerido": "250.00"
+    },
+    {
+        "SKU": "176392",
+        "UPC": "123456789013",
+        "Nombre": "Reflector 50W",
+        "Descripción": "Reflector de exterior",
+        "Categoría": "Iluminación",
+        "SUBCATEGORIA": "Exterior",
+        "LINEA": "Reflectores",
+        "Peso": "1.2",
+        "Precio Sugerido": "480.00"
+    }
+]

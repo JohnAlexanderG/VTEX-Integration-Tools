@@ -1,0 +1,18 @@
+[
+    {
+        "ProductId": 1001,
+        "RefId": "176391",
+        "Name": "Lámpara LED 10W",
+        "DepartmentId": 5,
+        "CategoryId": 12,
+        "BrandId": 8
+    },
+    {
+        "ProductId": 1002,
+        "RefId": "176392",
+        "Name": "Reflector 50W",
+        "DepartmentId": 5,
+        "CategoryId": 13,
+        "BrandId": 9
+    }
+]

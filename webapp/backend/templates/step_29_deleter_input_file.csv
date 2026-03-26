@@ -1,0 +1,4 @@
+referenceCode,basePrice,costPrice,listPrice,markup,tradePolicyId,fixedPrice,fixedListPrice,minQuantity,dateRange_from,dateRange_to
+176391,250.00,200.00,300.00,25.0,1,250.00,300.00,1,,
+176392,480.00,380.00,560.00,26.3,1,480.00,560.00,1,,
+176393,120.00,95.00,140.00,26.3,1,120.00,140.00,1,,

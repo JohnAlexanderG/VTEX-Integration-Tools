@@ -28,6 +28,7 @@ Thumbs.db
 !README.md
 !CLAUDE.md
 !.env.example
+!webapp/backend/templates/**
 
 # Data files (spreadsheets, exports, binaries)
 *.xls

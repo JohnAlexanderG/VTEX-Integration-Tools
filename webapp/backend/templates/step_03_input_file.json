@@ -1,0 +1,24 @@
+[
+    {
+        "SKU": "176391",
+        "RefId": "176391",
+        "Name": "Lámpara LED 10W",
+        "Description": "Lámpara de bajo consumo",
+        "CATEGORIA": "Iluminación",
+        "SUBCATEGORIA": "Interior",
+        "LINEA": "LED",
+        "Weight": "0.5",
+        "Price": "250.00"
+    },
+    {
+        "SKU": "176392",
+        "RefId": "176392",
+        "Name": "Reflector 50W",
+        "Description": "Reflector de exterior",
+        "CATEGORIA": "Iluminación",
+        "SUBCATEGORIA": "Exterior",
+        "LINEA": "Reflectores",
+        "Weight": "1.2",
+        "Price": "480.00"
+    }
+]

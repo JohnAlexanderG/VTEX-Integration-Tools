@@ -1,0 +1,14 @@
+[
+    {
+        "ProductId": 1001,
+        "RefId": "176391",
+        "SkuId": 2001,
+        "Name": "Lámpara LED 10W"
+    },
+    {
+        "ProductId": 1002,
+        "RefId": "176392",
+        "SkuId": 2002,
+        "Name": "Reflector 50W"
+    }
+]
