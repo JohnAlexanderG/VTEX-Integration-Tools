@@ -1,0 +1,36 @@
+[
+    {
+        "Name": "Lámpara LED 10W",
+        "DepartmentId": 5,
+        "CategoryId": 12,
+        "BrandId": 8,
+        "RefId": "176391",
+        "Title": "Lámpara LED 10W - ILUMAX",
+        "LinkId": "lampara-led-10w-ilumax",
+        "Description": "Lámpara de bajo consumo",
+        "DescriptionShort": "Lámpara LED 10W",
+        "ReleaseDate": "2024-01-01T00:00:00",
+        "KeyWords": "lampara,led,iluminacion",
+        "IsVisible": true,
+        "IsActive": true,
+        "TaxCode": "",
+        "MetaTagDescription": "Lámpara LED 10W bajo consumo"
+    },
+    {
+        "Name": "Reflector 50W",
+        "DepartmentId": 5,
+        "CategoryId": 13,
+        "BrandId": 9,
+        "RefId": "176392",
+        "Title": "Reflector 50W - REFLUX",
+        "LinkId": "reflector-50w-reflux",
+        "Description": "Reflector de exterior",
+        "DescriptionShort": "Reflector 50W",
+        "ReleaseDate": "2024-01-01T00:00:00",
+        "KeyWords": "reflector,exterior,iluminacion",
+        "IsVisible": true,
+        "IsActive": true,
+        "TaxCode": "",
+        "MetaTagDescription": "Reflector 50W para exteriores"
+    }
+]

@@ -1,0 +1,22 @@
+[
+    {
+        "CATEGORIA": "Iluminación",
+        "SUBCATEGORIA": "Interior",
+        "LINEA": "LED"
+    },
+    {
+        "CATEGORIA": "Iluminación",
+        "SUBCATEGORIA": "Interior",
+        "LINEA": "Bombillos"
+    },
+    {
+        "CATEGORIA": "Iluminación",
+        "SUBCATEGORIA": "Exterior",
+        "LINEA": "Reflectores"
+    },
+    {
+        "CATEGORIA": "Electricidad",
+        "SUBCATEGORIA": "Cables",
+        "LINEA": "Cobre"
+    }
+]

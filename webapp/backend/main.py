@@ -34,6 +34,8 @@ ENV_FILE = PROJECT_ROOT / ".env"
 JOBS_BASE = Path("/tmp/vtex_webapp")
 JOBS_BASE.mkdir(exist_ok=True)
 
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+
 # Find Python executable (prefer project venv)
 _VENV_PYTHON = PROJECT_ROOT / "venv" / "bin" / "python3"
 PYTHON_EXEC = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else "python3"
@@ -883,6 +885,17 @@ def get_tool(tool_id: str):
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
     return tool
+
+
+@app.get("/api/tools/{tool_id}/template/{input_name}")
+def download_template(tool_id: str, input_name: str):
+    """Return a downloadable template file for a tool's file input."""
+    filename_base = f"{tool_id}_{input_name}"
+    for ext in (".csv", ".json"):
+        path = TEMPLATES_DIR / (filename_base + ext)
+        if path.exists():
+            return FileResponse(path, filename=path.name, media_type="application/octet-stream")
+    return JSONResponse(status_code=404, content={"error": "Template not found"})
 
 
 @app.post("/api/tools/{tool_id}/run")

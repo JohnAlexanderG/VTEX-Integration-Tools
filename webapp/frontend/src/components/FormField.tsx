@@ -1,14 +1,15 @@
 import { useRef } from 'react'
-import { Upload, X } from 'lucide-react'
+import { Upload, X, Download } from 'lucide-react'
 import type { ToolInput } from '../types'
 
 interface Props {
   field: ToolInput
   value: string | boolean | File | null
   onChange: (name: string, value: string | boolean | File | null) => void
+  toolId?: string
 }
 
-export default function FormField({ field, value, onChange }: Props) {
+export default function FormField({ field, value, onChange, toolId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const labelClass = 'block text-xs font-medium text-gray-400 mb-1'
@@ -19,10 +20,23 @@ export default function FormField({ field, value, onChange }: Props) {
     const file = value instanceof File ? value : null
     return (
       <div>
-        <label className={labelClass}>
-          {field.label}
-          {field.required && <span className="text-vtex-pink ml-1">*</span>}
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label className={labelClass} style={{ marginBottom: 0 }}>
+            {field.label}
+            {field.required && <span className="text-vtex-pink ml-1">*</span>}
+          </label>
+          {toolId && (
+            <a
+              href={`/api/tools/${toolId}/template/${field.name}`}
+              download
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <Download size={11} />
+              Plantilla
+            </a>
+          )}
+        </div>
         <div
           className={`relative border-2 border-dashed rounded-lg p-3 cursor-pointer transition-colors ${
             file ? 'border-green-600 bg-green-900/10' : 'border-gray-700 hover:border-gray-500'

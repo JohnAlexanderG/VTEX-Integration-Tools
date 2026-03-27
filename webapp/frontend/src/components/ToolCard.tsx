@@ -144,6 +144,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
             field={inp}
             value={formValues[inp.name] ?? null}
             onChange={handleChange}
+            toolId={tool.id}
           />
         ))}
 

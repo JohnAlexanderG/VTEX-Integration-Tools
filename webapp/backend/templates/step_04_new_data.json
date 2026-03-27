@@ -1,0 +1,22 @@
+[
+    {
+        "MECA": "176393",
+        "RefId": "176393",
+        "Name": "Bombillo E27 12W",
+        "Description": "Bombillo ahorrador",
+        "CategoryPath": "Iluminación/Interior/Bombillos",
+        "BrandId": null,
+        "DepartmentId": 5,
+        "CategoryId": 14
+    },
+    {
+        "MECA": "176394",
+        "RefId": "176394",
+        "Name": "Panel LED 24W",
+        "Description": "Panel empotrado",
+        "CategoryPath": "Iluminación/Interior/Paneles",
+        "BrandId": null,
+        "DepartmentId": 5,
+        "CategoryId": 15
+    }
+]
