@@ -1,30 +1,42 @@
 import { useState, useEffect } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
-import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X } from 'lucide-react'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut } from 'lucide-react'
 import { fetchConfig } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 export default function Layout() {
-  const [vtexOk, setVtexOk] = useState<boolean | null>(null)
+  const [vtexOk, setVtexOk]         = useState<boolean | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user, logout, isAdmin }     = useAuth()
+  const navigate                      = useNavigate()
 
   useEffect(() => {
-    fetchConfig()
-      .then((c) => setVtexOk(c.configured))
-      .catch(() => setVtexOk(false))
-  }, [])
+    if (isAdmin) {
+      fetchConfig()
+        .then((c) => setVtexOk(c.configured))
+        .catch(() => setVtexOk(false))
+    }
+  }, [isAdmin])
 
-  // Close sidebar when route changes (mobile)
   const closeSidebar = () => setSidebarOpen(false)
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
+
+  const roleLabel: Record<string, string> = {
+    superadmin: 'Super Admin',
+    admin:      'Admin',
+    operator:   'Operador',
+  }
 
   return (
     <div className="flex h-screen bg-gray-950 overflow-hidden">
 
-      {/* Mobile overlay backdrop */}
+      {/* Mobile overlay */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-20 bg-black/60 md:hidden"
-          onClick={closeSidebar}
-        />
+        <div className="fixed inset-0 z-20 bg-black/60 md:hidden" onClick={closeSidebar} />
       )}
 
       {/* Sidebar */}
@@ -46,7 +58,6 @@ export default function Layout() {
               Integration<br />Tools
             </span>
           </div>
-          {/* Close button — only on mobile */}
           <button
             onClick={closeSidebar}
             className="md:hidden text-gray-400 hover:text-gray-100 p-1 -mr-1"
@@ -63,63 +74,97 @@ export default function Layout() {
             onClick={closeSidebar}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-vtex-pink text-white'
-                  : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
               }`
             }
           >
             <Layers size={16} />
             Pipeline
           </NavLink>
+
           <NavLink
             to="/tools"
             onClick={closeSidebar}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-vtex-pink text-white'
-                  : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
               }`
             }
           >
             <Wrench size={16} />
             Herramientas
           </NavLink>
-          <NavLink
-            to="/config"
-            onClick={closeSidebar}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-vtex-pink text-white'
-                  : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
-              }`
-            }
-          >
-            <Settings size={16} />
-            Configuración
-          </NavLink>
+
+          {/* Solo admin/superadmin */}
+          {isAdmin && (
+            <>
+              <NavLink
+                to="/config"
+                onClick={closeSidebar}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                  }`
+                }
+              >
+                <Settings size={16} />
+                Configuración
+              </NavLink>
+
+              <NavLink
+                to="/users"
+                onClick={closeSidebar}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                  }`
+                }
+              >
+                <Users size={16} />
+                Usuarios
+              </NavLink>
+            </>
+          )}
         </nav>
 
-        {/* VTEX Status */}
-        <div className="px-4 py-4 border-t border-gray-800">
-          <div className="flex items-center gap-2 text-xs">
-            {vtexOk === null ? (
-              <AlertCircle size={14} className="text-gray-500" />
-            ) : vtexOk ? (
-              <CheckCircle size={14} className="text-green-400" />
-            ) : (
-              <XCircle size={14} className="text-red-400" />
-            )}
-            <span className={vtexOk ? 'text-green-400' : 'text-gray-500'}>
-              VTEX {vtexOk ? 'configurado' : 'no configurado'}
-            </span>
-          </div>
+        {/* Footer: info de usuario + logout */}
+        <div className="px-4 py-4 border-t border-gray-800 space-y-3">
+          {/* VTEX status (solo admin) */}
+          {isAdmin && (
+            <div className="flex items-center gap-2 text-xs">
+              {vtexOk === null ? (
+                <AlertCircle size={14} className="text-gray-500" />
+              ) : vtexOk ? (
+                <CheckCircle size={14} className="text-green-400" />
+              ) : (
+                <XCircle size={14} className="text-red-400" />
+              )}
+              <span className={vtexOk ? 'text-green-400' : 'text-gray-500'}>
+                VTEX {vtexOk ? 'configurado' : 'no configurado'}
+              </span>
+            </div>
+          )}
+
+          {/* Info de usuario */}
+          {user && (
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-200 truncate">{user.username}</p>
+                <p className="text-[11px] text-gray-500">{roleLabel[user.role] ?? user.role}</p>
+              </div>
+              <button
+                onClick={handleLogout}
+                title="Cerrar sesión"
+                className="ml-2 p-1.5 text-gray-500 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
         <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800 flex-shrink-0">
