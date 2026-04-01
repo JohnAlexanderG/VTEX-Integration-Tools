@@ -20,5 +20,14 @@ jobs:
           source venv/bin/activate
           pip install requests python-dotenv --quiet
 
+      - name: Build frontend
+        run: |
+          cd ~/VTEX-Integration-Tools/webapp/frontend
+          npm install
+          npm run build
+
+      - name: Restart backend
+        run: sudo systemctl restart vtex-backend
+
       - name: Deploy complete
         run: echo "✅ Deploy exitoso - $(date)"
