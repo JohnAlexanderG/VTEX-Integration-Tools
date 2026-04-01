@@ -6,6 +6,7 @@ Run with:
 """
 
 import asyncio
+import ftplib
 import json
 import os
 import shutil
@@ -1070,6 +1071,127 @@ async def update_config(body: Dict[str, str]):
     for key, value in body.items():
         set_key(str(ENV_FILE), key, value)
     return {"ok": True, "configured": _vtex_configured()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FTP Deploy — Stock Diff → Pipeline de inventario
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ftp_configured() -> bool:
+    env = _get_env()
+    return all(env.get(k) for k in ["FTP_SERVER", "FTP_USER", "FTP_PASSWORD"])
+
+
+@app.get("/api/ftp-status")
+def ftp_status():
+    """Check whether FTP + AWS credentials are configured for the deploy pipeline."""
+    env = _get_env()
+    return {
+        "ftp_configured": _ftp_configured(),
+        "lambda_function": env.get("LAMBDA1_FUNCTION_NAME", "demo-lambda"),
+        "aws_region": env.get("AWS_REGION", "us-east-1"),
+    }
+
+
+@app.post("/api/jobs/{job_id}/ftp-deploy")
+async def ftp_deploy(job_id: str):
+    """
+    Upload the stock-diff NDJSON output to FTP then invoke Lambda1 (demo-lambda)
+    so the full inventory pipeline runs automatically.
+
+    Steps:
+      1. Find *_to_update.ndjson in the job output dir
+      2. Rename to nivelej_YYYYMMDD_HHmmss.ndjson  (matches Lambda1 + S3 trigger patterns)
+      3. Upload to FTP root via ftplib
+      4. Invoke demo-lambda via boto3 with {"include": "<exact-filename>", "exclude": ""}
+    """
+    import boto3
+    import botocore.exceptions
+
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "Job no encontrado"})
+
+    if job["status"] != "completed":
+        return JSONResponse(status_code=400, content={"error": "El job todavía no ha completado"})
+
+    # ── 1. Locate NDJSON output ───────────────────────────────────────────────
+    job_dir = Path(job["job_dir"])
+    ndjson_candidates = sorted(job_dir.glob("*_to_update.ndjson"))
+    if not ndjson_candidates:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "No se encontró archivo *_to_update.ndjson en los outputs del job"},
+        )
+    ndjson_path = ndjson_candidates[0]
+
+    # ── 2. Build remote filename ──────────────────────────────────────────────
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    remote_filename = f"nivelej_{timestamp}.ndjson"
+
+    # ── 3. FTP credentials ────────────────────────────────────────────────────
+    env = _get_env()
+    ftp_server = env.get("FTP_SERVER", "")
+    ftp_user = env.get("FTP_USER", "")
+    ftp_password = env.get("FTP_PASSWORD", "")
+    ftp_port = int(env.get("FTP_PORT", "21"))
+    lambda_function = env.get("LAMBDA1_FUNCTION_NAME", "demo-lambda")
+    aws_region = env.get("AWS_REGION", "us-east-1")
+
+    if not all([ftp_server, ftp_user, ftp_password]):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": (
+                    "Credenciales FTP no configuradas. "
+                    "Agrega FTP_SERVER, FTP_USER y FTP_PASSWORD al archivo .env"
+                )
+            },
+        )
+
+    # ── 4. Upload to FTP ──────────────────────────────────────────────────────
+    try:
+        with ftplib.FTP() as ftp:
+            ftp.connect(ftp_server, ftp_port, timeout=30)
+            ftp.login(ftp_user, ftp_password)
+            ftp.set_pasv(True)
+            with open(ndjson_path, "rb") as f:
+                ftp.storbinary(f"STOR {remote_filename}", f)
+    except ftplib.all_errors as exc:
+        return JSONResponse(status_code=500, content={"error": f"Error FTP: {exc}"})
+
+    # ── 5. Invoke Lambda1 ─────────────────────────────────────────────────────
+    lambda_invoked = False
+    lambda_response: dict | None = None
+    lambda_error: str | None = None
+    try:
+        lambda_client = boto3.client("lambda", region_name=aws_region)
+        payload = {"include": remote_filename, "exclude": ""}
+        response = lambda_client.invoke(
+            FunctionName=lambda_function,
+            InvocationType="RequestResponse",
+            Payload=json.dumps(payload).encode(),
+        )
+        raw = response["Payload"].read()
+        lambda_response = json.loads(raw) if raw else {}
+        lambda_invoked = True
+    except botocore.exceptions.NoCredentialsError:
+        lambda_error = "AWS sin credenciales. Configura ~/.aws/credentials o variables de entorno AWS."
+    except botocore.exceptions.ClientError as exc:
+        lambda_error = str(exc)
+    except Exception as exc:  # noqa: BLE001
+        lambda_error = str(exc)
+
+    return {
+        "ok": True,
+        "source_file": ndjson_path.name,
+        "remote_filename": remote_filename,
+        "ftp_server": ftp_server,
+        "lambda_invoked": lambda_invoked,
+        "lambda_function": lambda_function,
+        "lambda_response": lambda_response,
+        "lambda_error": lambda_error,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

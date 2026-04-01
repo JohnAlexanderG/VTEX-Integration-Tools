@@ -67,3 +67,38 @@ export async function updateConfig(values: Record<string, string>): Promise<void
 export function getFileDownloadUrl(jobId: string, filename: string): string {
   return `${BASE}/jobs/${jobId}/files/${encodeURIComponent(filename)}`
 }
+
+// ── FTP Deploy — Pipeline de inventario ──────────────────────────────────────
+
+export interface DeployResult {
+  ok: boolean
+  source_file?: string
+  remote_filename?: string
+  ftp_server?: string
+  lambda_invoked?: boolean
+  lambda_function?: string
+  lambda_response?: Record<string, unknown> | null
+  lambda_error?: string | null
+  error?: string
+}
+
+export interface FtpStatus {
+  ftp_configured: boolean
+  lambda_function: string
+  aws_region: string
+}
+
+export async function fetchFtpStatus(): Promise<FtpStatus> {
+  const res = await fetch(`${BASE}/ftp-status`)
+  if (!res.ok) throw new Error('Failed to fetch FTP status')
+  return res.json()
+}
+
+export async function deployToFtp(jobId: string): Promise<DeployResult> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/ftp-deploy`, { method: 'POST' })
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.error || 'Error al enviar al pipeline')
+  }
+  return data
+}
