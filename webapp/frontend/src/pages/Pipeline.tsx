@@ -44,8 +44,8 @@ export default function Pipeline() {
   }
 
   return (
-    <div className="p-6 max-w-3xl">
-      <div className="mb-6">
+    <div className="p-4 md:p-6 max-w-3xl">
+      <div className="mb-5 md:mb-6">
         <h1 className="text-xl font-bold text-gray-100">Pipeline</h1>
         <p className="text-sm text-gray-500 mt-1">
           Ejecuta los pasos del flujo completo de integración VTEX en orden.
@@ -53,7 +53,7 @@ export default function Pipeline() {
       </div>
 
       {/* Pre-step note */}
-      <div className="flex items-start gap-2 bg-blue-900/20 border border-blue-700/40 rounded-lg px-4 py-3 mb-6">
+      <div className="flex items-start gap-2 bg-blue-900/20 border border-blue-700/40 rounded-lg px-4 py-3 mb-5 md:mb-6">
         <Info size={15} className="text-blue-400 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-blue-300">
           <strong>Antes de empezar:</strong> Si es la primera vez creando categorías en VTEX, ejecuta el{' '}
@@ -77,11 +77,11 @@ export default function Pipeline() {
               <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
                 <button
                   onClick={() => setActiveStep(isOpen ? null : tool.id)}
-                  className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-800/40 transition-colors"
+                  className="w-full flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3 md:py-4 text-left hover:bg-gray-800/40 transition-colors"
                 >
                   <div className="flex-shrink-0">{stepIcon(tool.id)}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-mono text-gray-500">
                         {tool.step !== undefined ? `#${tool.step}` : ''}
                       </span>
@@ -95,7 +95,7 @@ export default function Pipeline() {
                     <p className="text-xs text-gray-500 truncate mt-0.5">{tool.description}</p>
                   </div>
                   {state?.outputFiles && state.outputFiles.length > 0 && (
-                    <span className="text-xs text-green-400 flex-shrink-0">
+                    <span className="text-xs text-green-400 flex-shrink-0 hidden sm:inline">
                       {state.outputFiles.length} archivo{state.outputFiles.length !== 1 ? 's' : ''}
                     </span>
                   )}
@@ -104,7 +104,7 @@ export default function Pipeline() {
 
                 {isOpen && (
                   <div className="border-t border-gray-800">
-                    <div className="p-5">
+                    <div className="p-4 md:p-5">
                       <ToolCard
                         tool={tool}
                         vtexConfigured={vtexConfigured}

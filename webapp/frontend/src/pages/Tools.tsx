@@ -25,14 +25,14 @@ export default function Tools() {
   )
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
+    <div className="p-4 md:p-6">
+      <div className="mb-5 md:mb-6">
         <h1 className="text-xl font-bold text-gray-100">Herramientas</h1>
         <p className="text-sm text-gray-500 mt-1">Utilidades individuales para transformación y gestión de datos.</p>
       </div>
 
       {/* Search */}
-      <div className="relative mb-6 max-w-md">
+      <div className="relative mb-5 md:mb-6 max-w-md">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
         <input
           type="text"
@@ -54,10 +54,10 @@ export default function Tools() {
             <div key={tool.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
               <button
                 onClick={() => setActiveToolId(isOpen ? null : tool.id)}
-                className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-gray-800/40 transition-colors"
+                className="w-full flex items-center justify-between gap-3 px-4 md:px-5 py-3 md:py-4 text-left hover:bg-gray-800/40 transition-colors"
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-gray-100">{tool.shortName}</span>
                     {tool.requires_vtex && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-vtex-pink/20 text-vtex-pink rounded font-medium">
@@ -71,7 +71,7 @@ export default function Tools() {
               </button>
 
               {isOpen && (
-                <div className="border-t border-gray-800 p-5">
+                <div className="border-t border-gray-800 p-4 md:p-5">
                   <ToolCard
                     tool={tool}
                     vtexConfigured={vtexConfigured}
