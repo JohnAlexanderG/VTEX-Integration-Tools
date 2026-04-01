@@ -1,11 +1,17 @@
 """
 Async SQLAlchemy database setup.
-Reads DATABASE_URL from environment (loaded by main.py via dotenv).
+DATABASE_URL se carga desde el .env raíz del proyecto (via main.py → load_dotenv).
 """
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
+# Cargar .env explícitamente para cuando database.py se importa antes que main.py
+_env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
@@ -21,6 +27,6 @@ class Base(DeclarativeBase):
 
 
 async def get_db():
-    """FastAPI dependency that yields an async DB session."""
+    """FastAPI dependency que cede una sesión async de BD."""
     async with AsyncSessionLocal() as session:
         yield session
