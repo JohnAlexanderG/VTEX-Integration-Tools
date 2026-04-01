@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef } from 'react'
-import { Play, Square, ChevronDown, ChevronUp, AlertTriangle, Download } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Play, Square, ChevronDown, ChevronUp, AlertTriangle, Download, Upload, CheckCircle, XCircle, Loader } from 'lucide-react'
 import type { Tool, JobStatus } from '../types'
-import { runTool, getFileDownloadUrl } from '../api/client'
+import { runTool, getFileDownloadUrl, deployToFtp, fetchFtpStatus } from '../api/client'
+import type { DeployResult, FtpStatus } from '../api/client'
 import { useJob } from '../hooks/useJob'
 import FormField from './FormField'
 import LogPanel from './LogPanel'
@@ -14,6 +15,7 @@ interface Props {
 }
 
 type FieldValue = string | boolean | File | null
+type DeployStatus = null | 'checking' | 'ready' | 'deploying' | 'done' | 'error'
 
 function StatusBadge({ status }: { status: JobStatus | null }) {
   if (!status) return null
@@ -58,12 +60,31 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [showLogs, setShowLogs] = useState(false)
   const { logs, status, outputFiles, exitCode } = useJob(jobId)
 
+  // ── FTP Deploy state (only relevant for step_44) ──────────────────────────
+  const isStockDiff = tool.id === 'step_44'
+  const [ftpStatus, setFtpStatus] = useState<FtpStatus | null>(null)
+  const [deployStatus, setDeployStatus] = useState<DeployStatus>(null)
+  const [deployResult, setDeployResult] = useState<DeployResult | null>(null)
+
+  // Check FTP config once when component mounts (only for step_44)
+  useEffect(() => {
+    if (!isStockDiff) return
+    fetchFtpStatus()
+      .then(setFtpStatus)
+      .catch(() => setFtpStatus(null))
+  }, [isStockDiff])
+
   const handleChange = useCallback((name: string, value: FieldValue) => {
     setFormValues((prev) => ({ ...prev, [name]: value }))
   }, [])
 
   const handleRun = async () => {
     setError(null)
+    // Reset deploy state on new run
+    if (isStockDiff) {
+      setDeployStatus(null)
+      setDeployResult(null)
+    }
 
     // Validate required fields
     for (const inp of tool.inputs) {
@@ -104,6 +125,20 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     }
   }
 
+  const handleDeploy = async () => {
+    if (!jobId) return
+    setDeployStatus('deploying')
+    setDeployResult(null)
+    try {
+      const result = await deployToFtp(jobId)
+      setDeployResult(result)
+      setDeployStatus(result.ok ? 'done' : 'error')
+    } catch (e: unknown) {
+      setDeployResult({ ok: false, error: e instanceof Error ? e.message : 'Error desconocido' })
+      setDeployStatus('error')
+    }
+  }
+
   const isRunning = status === 'running' || status === 'pending'
   const vtexWarning = tool.requires_vtex && !vtexConfigured
 
@@ -111,6 +146,8 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   if (status === 'completed' && outputFiles.length > 0 && jobId && onComplete) {
     onComplete(jobId, outputFiles)
   }
+
+  const showDeploySection = isStockDiff && status === 'completed' && jobId
 
   return (
     <div ref={cardRef} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -221,6 +258,91 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
                     {filename}
                   </a>
                 ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Deploy to Pipeline — solo step_44, solo cuando completó ── */}
+      {showDeploySection && (
+        <div className="border-t border-gray-700 px-5 py-4 bg-gray-800/40 space-y-3">
+          <div className="flex items-center gap-2">
+            <Upload size={13} className="text-blue-400 flex-shrink-0" />
+            <span className="text-xs font-semibold text-gray-200">Pipeline de inventario</span>
+            {ftpStatus && !ftpStatus.ftp_configured && (
+              <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 border border-yellow-700/50 rounded">
+                FTP no configurado
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-500 leading-relaxed">
+            Sube el archivo <code className="text-gray-300 bg-gray-700 px-1 rounded">_to_update.ndjson</code> al
+            servidor FTP e invoca <code className="text-gray-300 bg-gray-700 px-1 rounded">{ftpStatus?.lambda_function ?? 'demo-lambda'}</code> automáticamente.
+          </p>
+
+          {/* FTP not configured warning */}
+          {ftpStatus && !ftpStatus.ftp_configured && deployStatus !== 'done' && (
+            <div className="flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/40 rounded-lg px-3 py-2">
+              <AlertTriangle size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+              <span className="text-xs text-yellow-300">
+                Agrega <code>FTP_SERVER</code>, <code>FTP_USER</code> y <code>FTP_PASSWORD</code> al archivo <code>.env</code> para habilitar esta acción.
+              </span>
+            </div>
+          )}
+
+          {/* Deploy button */}
+          {deployStatus !== 'done' && (
+            <button
+              onClick={handleDeploy}
+              disabled={deployStatus === 'deploying' || (ftpStatus !== null && !ftpStatus.ftp_configured)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {deployStatus === 'deploying' ? (
+                <Loader size={14} className="animate-spin" />
+              ) : (
+                <Upload size={14} />
+              )}
+              {deployStatus === 'deploying' ? 'Enviando al pipeline…' : 'Enviar al pipeline de inventario'}
+            </button>
+          )}
+
+          {/* Deploy result */}
+          {deployResult && deployStatus === 'done' && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 bg-green-900/20 border border-green-700/40 rounded-lg px-3 py-2">
+                <CheckCircle size={13} className="text-green-400 flex-shrink-0" />
+                <div className="text-xs text-green-300 space-y-0.5">
+                  <div>
+                    Archivo subido al FTP:{' '}
+                    <code className="text-green-200">{deployResult.remote_filename}</code>
+                  </div>
+                  {deployResult.lambda_invoked ? (
+                    <div>
+                      Lambda <code className="text-green-200">{deployResult.lambda_function}</code> invocada correctamente.
+                    </div>
+                  ) : (
+                    <div className="text-yellow-300">
+                      FTP OK — Lambda no invocada: {deployResult.lambda_error}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => { setDeployStatus(null); setDeployResult(null) }}
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Volver a enviar
+              </button>
+            </div>
+          )}
+
+          {deployResult && deployStatus === 'error' && (
+            <div className="flex items-start gap-2 bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2">
+              <XCircle size={13} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-red-300">
+                {deployResult.error ?? 'Error desconocido'}
               </div>
             </div>
           )}
