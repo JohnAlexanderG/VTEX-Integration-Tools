@@ -25,8 +25,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Cargar .env antes de importar módulos que leen variables de entorno
-load_dotenv()
+# Cargar .env desde la raíz del proyecto (3 niveles arriba de webapp/backend/)
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from database import Base, engine, get_db                                    # noqa: E402
 from models import Tenant, TenantConfig, User, UserRole                       # noqa: E402
