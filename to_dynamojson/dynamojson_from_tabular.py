@@ -9,12 +9,20 @@ Usage examples:
   # Generate NDJSON of Items only (one DynamoDB-JSON item per line)
   python3 dynamojson_from_tabular.py data.csv --ndjson -o items.ndjson
 
+  # Merge with a seller xlsx, excluding rows whose StockKeepingUnitId matches
+  # any _SKUReferenceCode found in the main input (marketplace-owned SKUs).
+  python3 dynamojson_from_tabular.py input.xlsx --sellers-xlsx sellers.xlsx -o output.json
+
 Notes:
   - For Excel files you need pandas and openpyxl installed: pip install pandas openpyxl
   - Column names with parenthetical comments are automatically cleaned (e.g., "_SkuId (Not changeable)" -> "_SkuId")
   - Numbers are inferred and written as DynamoDB N (string), booleans as BOOL, empty as NULL,
     lists/dicts recognized if the cell contains valid JSON (e.g., "[1,2]" or '{"a":1}').
   - Use --all-as-string to force all non-empty values to S (string) type.
+  - --sellers-xlsx expects columns: StockKeepingUnitId, SellerId, SellerStockKeepingUnitId, IsActive.
+    If a StockKeepingUnitId from the sellers file matches a _SkuId from the main input,
+    BOTH records are excluded from the output (bidirectional filter). Only IDs that exist
+    in one file but not the other are kept.
 """
 
 from __future__ import annotations
@@ -176,6 +184,10 @@ def to_dynamo_attr(value: Any, *, all_as_string: bool = False, empty_as_null: bo
 # Input readers
 # ------------------------------
 
+# Columns expected in the sellers xlsx (case-insensitive match)
+_SELLER_COLS = {"stockkeepingunitid", "sellerid", "sellerstockkeepingunitid", "isactive"}
+
+
 def read_rows(input_path: str) -> List[Dict[str, Any]]:
     ext = os.path.splitext(input_path)[1].lower()
     if ext in {".csv"}:
@@ -194,6 +206,101 @@ def read_rows(input_path: str) -> List[Dict[str, Any]]:
         return df.to_dict(orient="records")
     else:
         raise ValueError(f"Unsupported input extension: {ext}. Use .csv, .xlsx, or .xls")
+
+
+def _extract_sku_ids(rows: List[Dict[str, Any]]) -> set:
+    """Return the set of _SkuId values present in the main input rows.
+
+    Handles both pre- and post-column-map states: looks for the key
+    '_SkuId' (after mapping) as well as the original VTEX export
+    header 'SKU ID' (before mapping), whichever is present.
+    Values are stored as stripped strings for comparison.
+    """
+    ids: set = set()
+    for row in rows:
+        for key in ("_SkuId", "SKU ID"):
+            val = row.get(key)
+            if val is not None:
+                s = str(val).strip()
+                if s:
+                    ids.add(s)
+                break
+    return ids
+
+
+def _extract_seller_sku_ids(rows: List[Dict[str, Any]]) -> set:
+    """Return the set of StockKeepingUnitId values from sellers xlsx rows.
+
+    Searches for the column name case-insensitively.
+    Values are stored as stripped strings for comparison.
+    """
+    ids: set = set()
+    if not rows:
+        return ids
+    # Find the actual column name (case-insensitive)
+    sku_col = None
+    for col in rows[0].keys():
+        if col.strip().lower() == "stockkeepingunitid":
+            sku_col = col
+            break
+    if sku_col is None:
+        return ids
+    for row in rows:
+        val = row.get(sku_col)
+        if val is not None:
+            s = str(val).strip()
+            if s:
+                ids.add(s)
+    return ids
+
+
+def read_sellers_xlsx(sellers_path: str, exclude_ids: set) -> List[Dict[str, Any]]:
+    """Read the sellers xlsx and return rows whose StockKeepingUnitId is NOT
+    in *exclude_ids* (the intersection computed by the caller).
+
+    Expected columns: StockKeepingUnitId, SellerId, SellerStockKeepingUnitId, IsActive
+    """
+    try:
+        import pandas as pd  # type: ignore
+    except Exception:
+        print("[ERROR] Reading sellers xlsx requires pandas (and openpyxl). Install with: pip install pandas openpyxl", file=sys.stderr)
+        raise
+
+    df = pd.read_excel(sellers_path, dtype=object)
+    df = df.where(pd.notnull(df), None)
+    rows = df.to_dict(orient="records")
+
+    # Locate the StockKeepingUnitId column (case-insensitive)
+    col_map: Dict[str, str] = {}
+    if rows:
+        for col in rows[0].keys():
+            col_map[col.strip().lower()] = col
+
+    sku_col = col_map.get("stockkeepingunitid")
+    if sku_col is None:
+        print(
+            "[WARN] --sellers-xlsx: 'StockKeepingUnitId' column not found. "
+            "No filtering applied. Columns found: " + str(list(col_map.values())),
+            file=sys.stderr,
+        )
+        return rows
+
+    kept: List[Dict[str, Any]] = []
+    skipped = 0
+    for row in rows:
+        val = row.get(sku_col)
+        val_str = str(val).strip() if val is not None else ""
+        if val_str in exclude_ids:
+            skipped += 1
+        else:
+            kept.append(row)
+
+    print(
+        f"[sellers-xlsx] Read {len(rows)} rows, excluded {skipped} marketplace-owned SKUs "
+        f"(StockKeepingUnitId matched _SkuId), kept {len(kept)}.",
+        file=sys.stderr,
+    )
+    return kept
 
 
 # ------------------------------
@@ -298,14 +405,37 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--no-column-map", action="store_true", help="Disable automatic VTEX column name mapping (e.g., 'Product ID' -> '_ProductId').")
     p.add_argument("--exclude-cols", default="", help="Comma-separated list of column names to exclude from the output (e.g., '_ProductName,_SkuName').")
     p.add_argument("--string-cols", default="", help="Comma-separated list of column names to force as String (S). Column names are cleaned like headers (e.g., '_SkuId (Not changeable)' -> '_SkuId').")
+    p.add_argument(
+        "--sellers-xlsx",
+        default="",
+        metavar="PATH",
+        help=(
+            "Optional path to a seller xlsx file with columns: "
+            "StockKeepingUnitId, SellerId, SellerStockKeepingUnitId, IsActive. "
+            "When a StockKeepingUnitId from this file matches a _SkuId from the "
+            "main input, BOTH records are excluded from the output. "
+            "The remaining sellers rows are converted to DynamoDB items and "
+            "merged into the output alongside the remaining main input rows."
+        ),
+    )
     return p.parse_args(argv)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+
+    # ── Main input ──────────────────────────────────────────────────────────
     rows = read_rows(args.input)
+
+    # Extract _SkuId values BEFORE applying the column map so we capture both
+    # the original header name ('SKU ID') and the mapped name ('_SkuId').
+    sku_ids = _extract_sku_ids(rows)
+
     if not args.no_column_map:
         rows = apply_column_map(rows, VTEX_COLUMN_MAP)
+        # Re-collect after mapping to catch the renamed key as well
+        sku_ids |= _extract_sku_ids(rows)
+
     empty_as_null = not args.no_empty_as_null
 
     # Columns to force as String (S)
@@ -320,28 +450,83 @@ def main(argv: Optional[List[str]] = None) -> int:
         raw_excl = [c.strip() for c in args.exclude_cols.split(",") if c.strip()]
         exclude_cols = {clean_key(c) for c in raw_excl}
 
-    # Compute default output
+    # ── Optional sellers xlsx ────────────────────────────────────────────────
+    seller_rows: List[Dict[str, Any]] = []
+    sellers_path = getattr(args, "sellers_xlsx", "") or ""
+    if sellers_path:
+        if not os.path.isfile(sellers_path):
+            print(f"[ERROR] --sellers-xlsx path not found: {sellers_path}", file=sys.stderr)
+            return 1
+        print(f"[sellers-xlsx] Loading '{sellers_path}' ...", file=sys.stderr)
+
+        # Read sellers file once to (a) extract its IDs and (b) filter it
+        try:
+            import pandas as pd  # type: ignore
+            _df = pd.read_excel(sellers_path, dtype=object)
+            _df = _df.where(pd.notnull(_df), None)
+            _seller_raw = _df.to_dict(orient="records")
+        except Exception as exc:
+            print(f"[ERROR] Could not read sellers xlsx: {exc}", file=sys.stderr)
+            return 1
+
+        seller_ids = _extract_seller_sku_ids(_seller_raw)
+
+        # IDs present in BOTH files → excluded from both outputs
+        matched_ids = sku_ids & seller_ids
+        print(
+            f"[sellers-xlsx] Main _SkuId count: {len(sku_ids)}, "
+            f"Seller StockKeepingUnitId count: {len(seller_ids)}, "
+            f"Matched (excluded from both outputs): {len(matched_ids)}.",
+            file=sys.stderr,
+        )
+
+        # Filter sellers xlsx: keep only rows NOT in the matched set
+        seller_rows = read_sellers_xlsx(sellers_path, matched_ids)
+
+        # Filter main input: exclude rows whose _SkuId appears in sellers file
+        if matched_ids:
+            before = len(rows)
+            rows = [r for r in rows if str(r.get("_SkuId", r.get("SKU ID", "")) or "").strip() not in matched_ids]
+            excluded_main = before - len(rows)
+            if excluded_main:
+                print(
+                    f"[main-input] Excluded {excluded_main} row(s) whose _SkuId "
+                    f"matched a StockKeepingUnitId in the sellers file.",
+                    file=sys.stderr,
+                )
+
+    # ── Compute default output path ──────────────────────────────────────────
     if args.output:
         out_path = args.output
     else:
         base, _ = os.path.splitext(args.input)
         out_path = base + (".ndjson" if args.ndjson else ".json")
 
-    # Generate
+    # ── Generate output ──────────────────────────────────────────────────────
     if args.ndjson and args.table_name:
         print("[WARN] --ndjson ignores --table-name and writes Items only.", file=sys.stderr)
 
+    conv_kw = dict(all_as_string=args.all_as_string, empty_as_null=empty_as_null,
+                   string_cols=string_cols, exclude_cols=exclude_cols)
+
     if args.ndjson:
-        # Write one Item per line
+        # Write one Item per line (main rows + seller rows)
         with open(out_path, "w", encoding="utf-8") as f:
             for r in rows:
-                item = row_to_item(r, all_as_string=args.all_as_string, empty_as_null=empty_as_null, string_cols=string_cols, exclude_cols=exclude_cols)
-                if item is not None:  # Skip items with NULL _SKUReferenceCode
+                item = row_to_item(r, **conv_kw)
+                if item is not None:
+                    f.write(json.dumps(item, ensure_ascii=False))
+                    f.write("\n")
+            for r in seller_rows:
+                item = row_to_item(r, **conv_kw)
+                if item is not None:
                     f.write(json.dumps(item, ensure_ascii=False))
                     f.write("\n")
     else:
         # Batch-write format (if table provided) or list of PutRequests
-        put_reqs = rows_to_put_requests(rows, all_as_string=args.all_as_string, empty_as_null=empty_as_null, string_cols=string_cols, exclude_cols=exclude_cols)
+        put_reqs = rows_to_put_requests(rows, **conv_kw)
+        if seller_rows:
+            put_reqs += rows_to_put_requests(seller_rows, **conv_kw)
         if args.table_name:
             payload = {args.table_name: put_reqs}
         else:
@@ -349,8 +534,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
 
+    # ── Summary ──────────────────────────────────────────────────────────────
     print(f"Wrote: {out_path}")
-    # Tips for AWS CLI usage
+    if sellers_path:
+        print(f"  Main input rows : {len(rows)}")
+        print(f"  Seller rows kept: {len(seller_rows)}")
     if not args.ndjson:
         if string_cols:
             print(f"  (Forced as String) Columns: {', '.join(sorted(string_cols))}")
