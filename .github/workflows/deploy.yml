@@ -1,0 +1,24 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Pull latest code
+        run: |
+          cd ~/VTEX-Integration-Tools
+          git pull origin main
+
+      - name: Activate venv and update dependencies
+        run: |
+          cd ~/VTEX-Integration-Tools
+          source venv/bin/activate
+          pip install requests python-dotenv --quiet
+
+      - name: Deploy complete
+        run: echo "✅ Deploy exitoso - $(date)"
