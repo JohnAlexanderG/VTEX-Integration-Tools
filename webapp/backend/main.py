@@ -17,11 +17,24 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiofiles
-from dotenv import dotenv_values, set_key
-from fastapi import FastAPI, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
+from dotenv import dotenv_values, load_dotenv, set_key
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import select, update as sa_update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# Cargar .env antes de importar módulos que leen variables de entorno
+load_dotenv()
+
+from database import Base, engine, get_db                                    # noqa: E402
+from models import Tenant, TenantConfig, User, UserRole                       # noqa: E402
+from auth import (                                                             # noqa: E402
+    create_access_token, decrypt_value, encrypt_value,
+    hash_password, verify_password,
+)
+from dependencies import get_current_user, require_admin, require_superadmin  # noqa: E402
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -54,6 +67,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def _startup():
+    """Crear tablas si no existen al iniciar la aplicación."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory state
@@ -844,7 +864,13 @@ def _build_command(tool: Dict, params: Dict[str, str], file_paths: Dict[str, str
     return cmd
 
 
-async def _run_job(job_id: str, tool: Dict, cmd: List[str], job_dir: Path) -> None:
+async def _run_job(
+    job_id: str,
+    tool: Dict,
+    cmd: List[str],
+    job_dir: Path,
+    tenant_env: Optional[Dict[str, str]] = None,
+) -> None:
     """Run the script as a subprocess and stream output to WebSocket clients."""
     job = jobs[job_id]
     job["status"] = "running"
@@ -854,13 +880,16 @@ async def _run_job(job_id: str, tool: Dict, cmd: List[str], job_dir: Path) -> No
     await _broadcast(job_id, {"type": "log", "stream": "system",
                                "text": f"$ {' '.join(cmd)}\n"})
 
+    # Las credenciales del tenant sobreescriben las del entorno global
+    subprocess_env = {**os.environ, "PYTHONUNBUFFERED": "1", **(tenant_env or {})}
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(PROJECT_ROOT),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            env=subprocess_env,
         )
         job["pid"] = proc.pid
 
@@ -903,17 +932,336 @@ async def _run_job(job_id: str, tool: Dict, cmd: List[str], job_dir: Path) -> No
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# REST Endpoints
+# Helpers internos para tenant config
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _get_tenant_config(tenant_id: int, db: AsyncSession) -> Optional[TenantConfig]:
+    result = await db.execute(
+        select(TenantConfig).where(TenantConfig.tenant_id == tenant_id)
+    )
+    return result.scalar_one_or_none()
+
+
+def _build_tenant_env(tc: Optional[TenantConfig]) -> Dict[str, str]:
+    """Construye el dict de env vars para el subprocess a partir del TenantConfig."""
+    env: Dict[str, str] = {}
+    if not tc:
+        return env
+    mapping = {
+        "X-VTEX-API-AppKey":     tc.vtex_api_key,
+        "X-VTEX-API-AppToken":   tc.vtex_api_token,
+        "VTEX_ACCOUNT_NAME":     tc.vtex_account_name,
+        "VTEX_ENVIRONMENT":      tc.vtex_environment,
+        "FTP_SERVER":            tc.ftp_server,
+        "FTP_USER":              tc.ftp_user,
+        "FTP_PASSWORD":          tc.ftp_password,
+        "FTP_PORT":              str(tc.ftp_port) if tc.ftp_port else None,
+        "LAMBDA1_FUNCTION_NAME": tc.lambda_function,
+        "AWS_REGION":            tc.aws_region,
+    }
+    # Campos que van cifrados con Fernet
+    encrypted_fields = {"X-VTEX-API-AppToken", "FTP_PASSWORD"}
+    for key, value in mapping.items():
+        if value:
+            env[key] = decrypt_value(value) if key in encrypted_fields else value
+    return env
+
+
+def _tenant_vtex_configured(tc: Optional[TenantConfig]) -> bool:
+    return bool(tc and tc.vtex_api_key and tc.vtex_api_token and tc.vtex_account_name)
+
+
+def _tenant_ftp_configured(tc: Optional[TenantConfig]) -> bool:
+    return bool(tc and tc.ftp_server and tc.ftp_user and tc.ftp_password)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auth endpoints  (públicos — sin JWT requerido)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/auth/tenants")
+async def list_tenants_public(db: AsyncSession = Depends(get_db)):
+    """Lista tenants activos para el selector de login."""
+    result = await db.execute(
+        select(Tenant.slug, Tenant.name).where(Tenant.is_active == True)
+    )
+    rows = result.all()
+    return {"tenants": [{"slug": r.slug, "name": r.name} for r in rows]}
+
+
+@app.post("/auth/login")
+async def login(body: Dict[str, str], db: AsyncSession = Depends(get_db)):
+    """
+    Login con username + password + tenant_slug.
+    Retorna un JWT con user_id, tenant_id y role.
+    """
+    username    = (body.get("username") or "").strip()
+    password    = body.get("password") or ""
+    tenant_slug = (body.get("tenant_slug") or "").strip()
+
+    # Buscar tenant
+    t_result = await db.execute(
+        select(Tenant).where(Tenant.slug == tenant_slug, Tenant.is_active == True)
+    )
+    tenant = t_result.scalar_one_or_none()
+    if not tenant:
+        return JSONResponse(status_code=401, content={"error": "Credenciales incorrectas"})
+
+    # Buscar usuario dentro del tenant
+    u_result = await db.execute(
+        select(User).where(
+            User.tenant_id == tenant.id,
+            User.username  == username,
+            User.is_active == True,
+        )
+    )
+    user = u_result.scalar_one_or_none()
+    if not user or not verify_password(password, user.hashed_password):
+        return JSONResponse(status_code=401, content={"error": "Credenciales incorrectas"})
+
+    token = create_access_token(user.id, user.tenant_id, user.role.value)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id":          user.id,
+            "username":    user.username,
+            "email":       user.email,
+            "role":        user.role.value,
+            "tenant_id":   user.tenant_id,
+            "tenant_slug": tenant.slug,
+            "tenant_name": tenant.name,
+        },
+    }
+
+
+@app.get("/auth/me")
+async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    t_result = await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    tenant = t_result.scalar_one_or_none()
+    return {
+        "id":          current_user.id,
+        "username":    current_user.username,
+        "email":       current_user.email,
+        "role":        current_user.role.value,
+        "tenant_id":   current_user.tenant_id,
+        "tenant_slug": tenant.slug if tenant else None,
+        "tenant_name": tenant.name if tenant else None,
+    }
+
+
+@app.post("/auth/change-password")
+async def change_password(
+    body: Dict[str, str],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current  = body.get("current_password", "")
+    new_pass = body.get("new_password", "")
+    if not verify_password(current, current_user.hashed_password):
+        return JSONResponse(status_code=400, content={"error": "Contraseña actual incorrecta"})
+    if len(new_pass) < 8:
+        return JSONResponse(status_code=400, content={"error": "La contraseña debe tener al menos 8 caracteres"})
+    await db.execute(
+        sa_update(User).where(User.id == current_user.id).values(hashed_password=hash_password(new_pass))
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gestión de usuarios  (admin de su tenant / superadmin global)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/users")
+async def list_users(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin ve usuarios de su tenant. Superadmin puede ver todos."""
+    query = select(User, Tenant.slug, Tenant.name).join(Tenant, User.tenant_id == Tenant.id)
+    if current_user.role != UserRole.superadmin:
+        query = query.where(User.tenant_id == current_user.tenant_id)
+    rows = (await db.execute(query)).all()
+    return {
+        "users": [
+            {
+                "id":          r.User.id,
+                "username":    r.User.username,
+                "email":       r.User.email,
+                "role":        r.User.role.value,
+                "is_active":   r.User.is_active,
+                "tenant_id":   r.User.tenant_id,
+                "tenant_slug": r.slug,
+                "tenant_name": r.name,
+                "created_at":  r.User.created_at.isoformat(),
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/users")
+async def create_user(
+    body: Dict[str, Any],
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    email    = (body.get("email") or "").strip() or None
+    role_str = body.get("role", "operator")
+
+    # Validaciones
+    if not username or not password:
+        return JSONResponse(status_code=400, content={"error": "username y password son requeridos"})
+    if len(password) < 8:
+        return JSONResponse(status_code=400, content={"error": "La contraseña debe tener al menos 8 caracteres"})
+
+    # Rol: admin solo puede crear operator/admin dentro de su tenant
+    try:
+        role = UserRole(role_str)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": f"Rol inválido: {role_str}"})
+    if current_user.role == UserRole.admin and role == UserRole.superadmin:
+        return JSONResponse(status_code=403, content={"error": "No puedes crear un superadmin"})
+
+    # Tenant: admin usa el suyo, superadmin puede especificar tenant_id
+    tenant_id = current_user.tenant_id
+    if current_user.role == UserRole.superadmin and "tenant_id" in body:
+        tenant_id = int(body["tenant_id"])
+
+    # Verificar duplicado
+    dup = await db.execute(
+        select(User).where(User.tenant_id == tenant_id, User.username == username)
+    )
+    if dup.scalar_one_or_none():
+        return JSONResponse(status_code=409, content={"error": "El usuario ya existe en este tenant"})
+
+    new_user = User(
+        tenant_id=tenant_id,
+        username=username,
+        email=email,
+        hashed_password=hash_password(password),
+        role=role,
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return {"ok": True, "id": new_user.id}
+
+
+@app.put("/api/users/{user_id}")
+async def update_user(
+    user_id: int,
+    body: Dict[str, Any],
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        return JSONResponse(status_code=404, content={"error": "Usuario no encontrado"})
+    # Admin solo puede modificar usuarios de su tenant
+    if current_user.role == UserRole.admin and target.tenant_id != current_user.tenant_id:
+        return JSONResponse(status_code=403, content={"error": "Sin permisos"})
+
+    if "is_active" in body:
+        target.is_active = bool(body["is_active"])
+    if "email" in body:
+        target.email = body["email"] or None
+    if "role" in body:
+        try:
+            new_role = UserRole(body["role"])
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "Rol inválido"})
+        if current_user.role == UserRole.admin and new_role == UserRole.superadmin:
+            return JSONResponse(status_code=403, content={"error": "No puedes asignar superadmin"})
+        target.role = new_role
+    if "password" in body and body["password"]:
+        if len(body["password"]) < 8:
+            return JSONResponse(status_code=400, content={"error": "Contraseña muy corta"})
+        target.hashed_password = hash_password(body["password"])
+
+    await db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gestión de tenants  (solo superadmin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/tenants")
+async def list_tenants(
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(select(Tenant))).scalars().all()
+    return {
+        "tenants": [
+            {
+                "id":         t.id,
+                "name":       t.name,
+                "slug":       t.slug,
+                "is_active":  t.is_active,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in rows
+        ]
+    }
+
+
+@app.post("/api/tenants")
+async def create_tenant(
+    body: Dict[str, Any],
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    name = (body.get("name") or "").strip()
+    slug = (body.get("slug") or "").strip().lower()
+    if not name or not slug:
+        return JSONResponse(status_code=400, content={"error": "name y slug son requeridos"})
+    dup = await db.execute(select(Tenant).where(Tenant.slug == slug))
+    if dup.scalar_one_or_none():
+        return JSONResponse(status_code=409, content={"error": "El slug ya existe"})
+    tenant = Tenant(name=name, slug=slug)
+    db.add(tenant)
+    await db.commit()
+    await db.refresh(tenant)
+    return {"ok": True, "id": tenant.id}
+
+
+@app.put("/api/tenants/{tenant_id}")
+async def update_tenant(
+    tenant_id: int,
+    body: Dict[str, Any],
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        return JSONResponse(status_code=404, content={"error": "Tenant no encontrado"})
+    if "name" in body:
+        tenant.name = body["name"]
+    if "is_active" in body:
+        tenant.is_active = bool(body["is_active"])
+    await db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REST Endpoints — Tools y Jobs (protegidos por JWT)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/api/tools")
-def get_tools():
+def get_tools(current_user: User = Depends(get_current_user)):
     """Return the full tools configuration."""
     return {"tools": TOOLS}
 
 
 @app.get("/api/tools/{tool_id}")
-def get_tool(tool_id: str):
+def get_tool(tool_id: str, current_user: User = Depends(get_current_user)):
     tool = TOOLS_BY_ID.get(tool_id)
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
@@ -921,7 +1269,11 @@ def get_tool(tool_id: str):
 
 
 @app.get("/api/tools/{tool_id}/template/{input_name}")
-def download_template(tool_id: str, input_name: str):
+def download_template(
+    tool_id: str,
+    input_name: str,
+    current_user: User = Depends(get_current_user),
+):
     """Return a downloadable template file for a tool's file input."""
     filename_base = f"{tool_id}_{input_name}"
     for ext in (".csv", ".json"):
@@ -932,7 +1284,12 @@ def download_template(tool_id: str, input_name: str):
 
 
 @app.post("/api/tools/{tool_id}/run")
-async def run_tool(tool_id: str, request: Request):
+async def run_tool(
+    tool_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Start executing a tool.
 
@@ -944,14 +1301,19 @@ async def run_tool(tool_id: str, request: Request):
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
 
-    if tool.get("requires_vtex") and not _vtex_configured():
+    # Obtener config del tenant actual
+    tc = await _get_tenant_config(current_user.tenant_id, db)
+    tenant_env = _build_tenant_env(tc)
+
+    if tool.get("requires_vtex") and not _tenant_vtex_configured(tc):
         return JSONResponse(
             status_code=400,
-            content={"error": "VTEX credentials not configured. Go to Settings."},
+            content={"error": "Credenciales VTEX no configuradas. Ve a Configuración."},
         )
 
-    job_id = str(uuid.uuid4())
-    job_dir = JOBS_BASE / job_id
+    job_id  = str(uuid.uuid4())
+    # Jobs aislados por tenant: /tmp/vtex_webapp/{tenant_id}/{job_id}/
+    job_dir = JOBS_BASE / str(current_user.tenant_id) / job_id
     job_dir.mkdir(parents=True)
 
     form = await request.form()
@@ -967,10 +1329,10 @@ async def run_tool(tool_id: str, request: Request):
     for key, value in form.multi_items():
         if key.startswith("file__") and isinstance(value, StarletteUploadFile):
             field_name = key[6:]  # strip "file__"
-            filename = value.filename or field_name
-            safe_name = f"_input_{filename}"
-            dest = job_dir / safe_name
-            content = await value.read()
+            filename   = value.filename or field_name
+            safe_name  = f"_input_{filename}"
+            dest       = job_dir / safe_name
+            content    = await value.read()
             dest.write_bytes(content)
             file_paths[field_name] = str(dest)
 
@@ -985,65 +1347,84 @@ async def run_tool(tool_id: str, request: Request):
     # For output files: redirect them into job_dir
     for inp in tool["inputs"]:
         if inp.get("role") == "output_file":
-            name = inp["name"]
+            name     = inp["name"]
             filename = params_dict.get(name) or inp.get("default", f"{name}_output")
-            # Use just the basename, placed in job_dir
             out_path = job_dir / Path(filename).name
             params_dict[name] = str(out_path)
 
     cmd = _build_command(tool, params_dict, file_paths)
 
-    # Create job record
+    # Create job record (incluye tenant_id y user_id para aislamiento)
     jobs[job_id] = {
-        "id": job_id,
-        "tool_id": tool_id,
-        "tool_name": tool["name"],
-        "status": "pending",
-        "created_at": datetime.utcnow().isoformat(),
+        "id":          job_id,
+        "tenant_id":   current_user.tenant_id,
+        "user_id":     current_user.id,
+        "tool_id":     tool_id,
+        "tool_name":   tool["name"],
+        "status":      "pending",
+        "created_at":  datetime.utcnow().isoformat(),
         "finished_at": None,
-        "exit_code": None,
-        "command": cmd,
+        "exit_code":   None,
+        "command":     cmd,
         "output_files": [],
-        "job_dir": str(job_dir),
+        "job_dir":     str(job_dir),
     }
     log_buffer[job_id] = []
 
-    # Run in background
-    asyncio.create_task(_run_job(job_id, tool, cmd, job_dir))
+    # Run in background con las credenciales del tenant
+    asyncio.create_task(_run_job(job_id, tool, cmd, job_dir, tenant_env))
 
     return {"job_id": job_id}
 
 
 @app.get("/api/jobs")
-def list_jobs():
-    job_list = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
-    return {"jobs": job_list[:50]}
+def list_jobs(current_user: User = Depends(get_current_user)):
+    """Lista jobs. Superadmin ve todos; los demás solo los de su tenant."""
+    all_jobs = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
+    if current_user.role == UserRole.superadmin:
+        visible = all_jobs
+    else:
+        visible = [j for j in all_jobs if j.get("tenant_id") == current_user.tenant_id]
+    return {"jobs": visible[:50]}
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
+def get_job(job_id: str, current_user: User = Depends(get_current_user)):
     job = jobs.get(job_id)
     if not job:
         return JSONResponse(status_code=404, content={"error": "Job not found"})
+    # Verificar que el job pertenece al tenant del usuario
+    if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
+        return JSONResponse(status_code=403, content={"error": "Sin permisos"})
     return job
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str):
-    job = jobs.pop(job_id, None)
-    if job:
-        job_dir = Path(job["job_dir"])
-        if job_dir.exists():
-            shutil.rmtree(job_dir, ignore_errors=True)
-        log_buffer.pop(job_id, None)
+def delete_job(job_id: str, current_user: User = Depends(get_current_user)):
+    job = jobs.get(job_id)
+    if not job:
+        return {"ok": True}
+    if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
+        return JSONResponse(status_code=403, content={"error": "Sin permisos"})
+    jobs.pop(job_id, None)
+    job_dir = Path(job["job_dir"])
+    if job_dir.exists():
+        shutil.rmtree(job_dir, ignore_errors=True)
+    log_buffer.pop(job_id, None)
     return {"ok": True}
 
 
 @app.get("/api/jobs/{job_id}/files/{filename}")
-def download_file(job_id: str, filename: str):
+def download_file(
+    job_id: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
     job = jobs.get(job_id)
     if not job:
         return JSONResponse(status_code=404, content={"error": "Job not found"})
+    if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
+        return JSONResponse(status_code=403, content={"error": "Sin permisos"})
     path = Path(job["job_dir"]) / filename
     if not path.exists() or not path.is_file():
         return JSONResponse(status_code=404, content={"error": "File not found"})
@@ -1053,48 +1434,95 @@ def download_file(job_id: str, filename: str):
 # Config ──────────────────────────────────────────────────────────────────────
 
 @app.get("/api/config")
-def get_config():
-    env = _get_env()
-    # Mask token
-    if "X-VTEX-API-AppToken" in env and env["X-VTEX-API-AppToken"]:
-        masked = env["X-VTEX-API-AppToken"]
-        env["X-VTEX-API-AppToken"] = masked[:4] + "●●●●●●●●" if len(masked) > 4 else "●●●●●●●●"
-    return {
-        "configured": _vtex_configured(),
-        "values": env,
-    }
+async def get_config(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve la config VTEX/FTP del tenant del usuario logueado."""
+    tc = await _get_tenant_config(current_user.tenant_id, db)
+    values: Dict[str, Any] = {}
+    if tc:
+        token = tc.vtex_api_token or ""
+        values = {
+            "X-VTEX-API-AppKey":     tc.vtex_api_key    or "",
+            "X-VTEX-API-AppToken":   (token[:4] + "●●●●●●●●") if len(token) > 4 else ("●●●●●●●●" if token else ""),
+            "VTEX_ACCOUNT_NAME":     tc.vtex_account_name or "",
+            "VTEX_ENVIRONMENT":      tc.vtex_environment  or "vtexcommercestable",
+            "FTP_SERVER":            tc.ftp_server         or "",
+            "FTP_USER":              tc.ftp_user           or "",
+            "FTP_PASSWORD":          "●●●●●●●●"           if tc.ftp_password else "",
+            "FTP_PORT":              str(tc.ftp_port)      if tc.ftp_port else "21",
+            "LAMBDA1_FUNCTION_NAME": tc.lambda_function    or "",
+            "AWS_REGION":            tc.aws_region         or "us-east-1",
+        }
+    return {"configured": _tenant_vtex_configured(tc), "values": values}
 
 
 @app.put("/api/config")
-async def update_config(body: Dict[str, str]):
-    ENV_FILE.touch(exist_ok=True)
-    for key, value in body.items():
-        set_key(str(ENV_FILE), key, value)
-    return {"ok": True, "configured": _vtex_configured()}
+async def update_config(
+    body: Dict[str, str],
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Actualiza la config VTEX/FTP del tenant. Cifra tokens sensibles con Fernet."""
+    tc = await _get_tenant_config(current_user.tenant_id, db)
+    if not tc:
+        tc = TenantConfig(tenant_id=current_user.tenant_id)
+        db.add(tc)
+
+    field_map = {
+        "X-VTEX-API-AppKey":     ("vtex_api_key",      False),
+        "X-VTEX-API-AppToken":   ("vtex_api_token",    True),
+        "VTEX_ACCOUNT_NAME":     ("vtex_account_name", False),
+        "VTEX_ENVIRONMENT":      ("vtex_environment",  False),
+        "FTP_SERVER":            ("ftp_server",        False),
+        "FTP_USER":              ("ftp_user",          False),
+        "FTP_PASSWORD":          ("ftp_password",      True),
+        "FTP_PORT":              ("ftp_port",          False),
+        "LAMBDA1_FUNCTION_NAME": ("lambda_function",   False),
+        "AWS_REGION":            ("aws_region",        False),
+    }
+    for env_key, value in body.items():
+        if env_key not in field_map:
+            continue
+        attr, should_encrypt = field_map[env_key]
+        # No sobreescribir con placeholder de máscara
+        if value and "●" not in value:
+            if env_key == "FTP_PORT":
+                setattr(tc, attr, int(value) if value.isdigit() else 21)
+            else:
+                setattr(tc, attr, encrypt_value(value) if should_encrypt else value)
+
+    tc.updated_at = datetime.utcnow()
+    await db.commit()
+    tc = await _get_tenant_config(current_user.tenant_id, db)
+    return {"ok": True, "configured": _tenant_vtex_configured(tc)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FTP Deploy — Stock Diff → Pipeline de inventario
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _ftp_configured() -> bool:
-    env = _get_env()
-    return all(env.get(k) for k in ["FTP_SERVER", "FTP_USER", "FTP_PASSWORD"])
-
-
 @app.get("/api/ftp-status")
-def ftp_status():
+async def ftp_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Check whether FTP + AWS credentials are configured for the deploy pipeline."""
-    env = _get_env()
+    tc = await _get_tenant_config(current_user.tenant_id, db)
     return {
-        "ftp_configured": _ftp_configured(),
-        "lambda_function": env.get("LAMBDA1_FUNCTION_NAME", "demo-lambda"),
-        "aws_region": env.get("AWS_REGION", "us-east-1"),
+        "ftp_configured":  _tenant_ftp_configured(tc),
+        "lambda_function": tc.lambda_function if tc else "demo-lambda",
+        "aws_region":      tc.aws_region      if tc else "us-east-1",
     }
 
 
 @app.post("/api/jobs/{job_id}/ftp-deploy")
-async def ftp_deploy(job_id: str):
+async def ftp_deploy(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Upload the stock-diff NDJSON output to FTP then invoke Lambda1 (demo-lambda)
     so the full inventory pipeline runs automatically.
@@ -1111,7 +1539,8 @@ async def ftp_deploy(job_id: str):
     job = jobs.get(job_id)
     if not job:
         return JSONResponse(status_code=404, content={"error": "Job no encontrado"})
-
+    if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
+        return JSONResponse(status_code=403, content={"error": "Sin permisos"})
     if job["status"] != "completed":
         return JSONResponse(status_code=400, content={"error": "El job todavía no ha completado"})
 
@@ -1129,14 +1558,15 @@ async def ftp_deploy(job_id: str):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     remote_filename = f"nivelej_{timestamp}.ndjson"
 
-    # ── 3. FTP credentials ────────────────────────────────────────────────────
-    env = _get_env()
-    ftp_server = env.get("FTP_SERVER", "")
-    ftp_user = env.get("FTP_USER", "")
-    ftp_password = env.get("FTP_PASSWORD", "")
-    ftp_port = int(env.get("FTP_PORT", "21"))
-    lambda_function = env.get("LAMBDA1_FUNCTION_NAME", "demo-lambda")
-    aws_region = env.get("AWS_REGION", "us-east-1")
+    # ── 3. FTP credentials (desde tenant_config en BD) ───────────────────────
+    tc = await _get_tenant_config(current_user.tenant_id, db)
+    tenant_env_ftp = _build_tenant_env(tc)
+    ftp_server      = tenant_env_ftp.get("FTP_SERVER", "")
+    ftp_user        = tenant_env_ftp.get("FTP_USER", "")
+    ftp_password    = tenant_env_ftp.get("FTP_PASSWORD", "")
+    ftp_port        = int(tenant_env_ftp.get("FTP_PORT", "21"))
+    lambda_function = tenant_env_ftp.get("LAMBDA1_FUNCTION_NAME", "demo-lambda")
+    aws_region      = tenant_env_ftp.get("AWS_REGION", "us-east-1")
 
     if not all([ftp_server, ftp_user, ftp_password]):
         return JSONResponse(
@@ -1199,7 +1629,30 @@ async def ftp_deploy(job_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws/{job_id}")
-async def websocket_endpoint(websocket: WebSocket, job_id: str):
+async def websocket_endpoint(websocket: WebSocket, job_id: str, token: str = ""):
+    """
+    WebSocket para streaming de logs.
+    El token JWT se pasa como query param: /ws/{job_id}?token=xxx
+    """
+    from jose import JWTError
+    from auth import decode_token as _decode
+
+    # Validar token
+    try:
+        payload  = _decode(token)
+        tid      = int(payload["tenant_id"])
+        role_str = payload.get("role", "operator")
+    except (JWTError, KeyError, ValueError):
+        await websocket.close(code=4001)
+        return
+
+    # Verificar que el job pertenece al tenant
+    job = jobs.get(job_id)
+    if job and role_str != UserRole.superadmin.value:
+        if job.get("tenant_id") != tid:
+            await websocket.close(code=4003)
+            return
+
     await websocket.accept()
     ws_clients.setdefault(job_id, []).append(websocket)
 

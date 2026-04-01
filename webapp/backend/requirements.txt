@@ -4,3 +4,11 @@ python-multipart==0.0.12
 python-dotenv==1.0.1
 aiofiles==24.1.0
 boto3==1.35.0
+
+# Auth & DB
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+cryptography==43.0.3
