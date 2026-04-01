@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X } from 'lucide-react'
 import { fetchConfig } from '../api/client'
 
 export default function Layout() {
   const [vtexOk, setVtexOk] = useState<boolean | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     fetchConfig()
@@ -12,12 +13,31 @@ export default function Layout() {
       .catch(() => setVtexOk(false))
   }, [])
 
+  // Close sidebar when route changes (mobile)
+  const closeSidebar = () => setSidebarOpen(false)
+
   return (
     <div className="flex h-screen bg-gray-950 overflow-hidden">
+
+      {/* Mobile overlay backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/60 md:hidden"
+          onClick={closeSidebar}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-30 w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col
+          transform transition-transform duration-200 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:relative md:translate-x-0 md:z-auto
+        `}
+      >
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-gray-800">
+        <div className="px-5 py-5 border-b border-gray-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded bg-vtex-pink flex items-center justify-center text-white font-bold text-xs">
               VX
@@ -26,12 +46,21 @@ export default function Layout() {
               Integration<br />Tools
             </span>
           </div>
+          {/* Close button — only on mobile */}
+          <button
+            onClick={closeSidebar}
+            className="md:hidden text-gray-400 hover:text-gray-100 p-1 -mr-1"
+            aria-label="Cerrar menú"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1">
           <NavLink
             to="/pipeline"
+            onClick={closeSidebar}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
@@ -45,6 +74,7 @@ export default function Layout() {
           </NavLink>
           <NavLink
             to="/tools"
+            onClick={closeSidebar}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
@@ -58,6 +88,7 @@ export default function Layout() {
           </NavLink>
           <NavLink
             to="/config"
+            onClick={closeSidebar}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
@@ -89,9 +120,28 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Mobile top bar */}
+        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800 flex-shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="text-gray-400 hover:text-gray-100 p-1 -ml-1"
+            aria-label="Abrir menú"
+          >
+            <Menu size={20} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-vtex-pink flex items-center justify-center text-white font-bold text-[10px]">
+              VX
+            </div>
+            <span className="text-sm font-semibold text-gray-100">Integration Tools</span>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

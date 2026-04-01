@@ -73,13 +73,13 @@ export default function Config() {
 
   if (loading) {
     return (
-      <div className="p-6 text-sm text-gray-500">Cargando configuración…</div>
+      <div className="p-4 md:p-6 text-sm text-gray-500">Cargando configuración…</div>
     )
   }
 
   return (
-    <div className="p-6 max-w-xl">
-      <div className="mb-6">
+    <div className="p-4 md:p-6 max-w-xl">
+      <div className="mb-5 md:mb-6">
         <h1 className="text-xl font-bold text-gray-100">Configuración</h1>
         <p className="text-sm text-gray-500 mt-1">
           Credenciales VTEX guardadas en el archivo <code className="text-gray-400">.env</code> del proyecto.
@@ -87,15 +87,15 @@ export default function Config() {
       </div>
 
       {/* Status badge */}
-      <div className="flex items-center gap-2 mb-6">
+      <div className="flex items-start gap-2 mb-5 md:mb-6">
         {configured ? (
           <>
-            <CheckCircle size={16} className="text-green-400" />
+            <CheckCircle size={16} className="text-green-400 flex-shrink-0 mt-0.5" />
             <span className="text-sm text-green-400">Credenciales VTEX configuradas correctamente</span>
           </>
         ) : (
           <>
-            <XCircle size={16} className="text-red-400" />
+            <XCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
             <span className="text-sm text-red-400">
               Credenciales VTEX incompletas — algunos pasos del pipeline no funcionarán
             </span>
@@ -103,12 +103,14 @@ export default function Config() {
         )}
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-5">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 md:p-5 space-y-5">
         {FIELDS.map((field) => (
           <div key={field.key}>
             <label className="block text-xs font-medium text-gray-400 mb-1">
               {field.label}
-              <span className="text-gray-600 ml-2 font-normal">{field.help}</span>
+              <span className="text-gray-600 ml-2 font-normal block sm:inline mt-0.5 sm:mt-0">
+                {field.help}
+              </span>
             </label>
             <div className="relative">
               <input
@@ -157,7 +159,7 @@ export default function Config() {
       </div>
 
       {/* Info */}
-      <div className="mt-6 bg-gray-900/50 border border-gray-800 rounded-lg p-4 text-xs text-gray-500 space-y-1">
+      <div className="mt-5 md:mt-6 bg-gray-900/50 border border-gray-800 rounded-lg p-4 text-xs text-gray-500 space-y-1">
         <p>
           <span className="text-gray-400 font-medium">Archivo .env:</span>{' '}
           {`${window.location.hostname === 'localhost' ? '<proyecto>/.env' : '.env'}`}
