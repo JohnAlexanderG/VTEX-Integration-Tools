@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LogEntry, JobStatus } from '../types'
+import { buildWsUrl } from '../api/client'
 
 interface UseJobResult {
   logs: LogEntry[]
@@ -27,9 +28,7 @@ export function useJob(jobId: string | null): UseJobResult {
     setExitCode(null)
     setIsConnected(false)
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const url = `${protocol}//${host}/ws/${jobId}`
+    const url = buildWsUrl(jobId)
 
     const ws = new WebSocket(url)
     wsRef.current = ws
