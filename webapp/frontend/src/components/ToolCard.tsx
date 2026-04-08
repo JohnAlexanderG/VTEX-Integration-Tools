@@ -58,7 +58,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
-  const { logs, status, outputFiles, exitCode } = useJob(jobId)
+  const { logs, status, outputFiles, exitCode, isConnected } = useJob(jobId)
 
   // ── FTP Deploy state (only relevant for step_44) ──────────────────────────
   const isStockDiff = tool.id === 'step_44'
@@ -140,6 +140,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   }
 
   const isRunning = status === 'running' || status === 'pending'
+  const isBootstrapping = status === 'pending' || (jobId !== null && !isConnected && status === 'running')
   const vtexWarning = tool.requires_vtex && !vtexConfigured
 
   // Notify parent when job completes with output files
@@ -191,13 +192,27 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
           </div>
         )}
 
+        {jobId && isBootstrapping && (
+          <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg px-3 py-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-blue-300">
+              <Loader size={14} className="animate-spin flex-shrink-0" />
+              <span>
+                Preparando la ejecución y conectando los logs en tiempo real. Esto puede tardar un momento con archivos grandes.
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
+              <div className="h-full w-1/3 rounded-full bg-blue-400 animate-pulse" />
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-3 pt-1 flex-wrap">
           <button
             onClick={handleRun}
             disabled={isRunning || vtexWarning}
             className="flex items-center gap-2 px-4 py-2 bg-vtex-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
           >
-            {isRunning ? <Square size={14} /> : <Play size={14} />}
+            {isRunning ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
             {isRunning ? 'Ejecutando…' : 'Ejecutar'}
           </button>
 
@@ -229,6 +244,18 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
         <div className="border-t border-gray-800 px-4 md:px-5 py-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-gray-400">Logs</span>
+            {status === 'pending' && (
+              <span className="text-xs text-blue-400 flex items-center gap-1.5">
+                <Loader size={12} className="animate-spin" />
+                Iniciando ejecución…
+              </span>
+            )}
+            {status === 'running' && !isConnected && (
+              <span className="text-xs text-blue-400 flex items-center gap-1.5">
+                <Loader size={12} className="animate-spin" />
+                Reconectando logs…
+              </span>
+            )}
             {status === 'completed' && (
               <span className="text-xs text-green-400">
                 Salió con código {exitCode}
