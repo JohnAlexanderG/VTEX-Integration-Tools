@@ -59,6 +59,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [lastRunWasDryRun, setLastRunWasDryRun] = useState(false)
   const { logs, status, outputFiles, exitCode, isConnected } = useJob(jobId)
 
   // ── FTP Deploy state (only relevant for step_44) ──────────────────────────
@@ -96,6 +97,8 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
         return
       }
     }
+
+    setLastRunWasDryRun(formValues.dry_run === true)
 
     const params: Record<string, string> = {}
     const files: Array<{ fieldName: string; file: File }> = []
@@ -156,7 +159,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     onComplete(jobId, outputFiles)
   }
 
-  const showDeploySection = isStockDiff && status === 'completed' && jobId
+  const showDeploySection = isStockDiff && status === 'completed' && jobId && !lastRunWasDryRun
 
   return (
     <div ref={cardRef} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
