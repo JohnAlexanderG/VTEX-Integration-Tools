@@ -758,7 +758,7 @@ TOOLS: List[Dict[str, Any]] = [
              "required": True, "accept": ".xls,.xlsx,.csv", "position": 2, "role": "input_file"},
             {"name": "output_prefix", "type": "text",
              "label": "Prefijo de archivos de salida",
-             "default": "stock_diff", "position": 3, "role": "output_file"},
+             "default": "nivelej_", "position": 3, "role": "output_file"},
             {"name": "processed", "type": "file",
              "label": "Inventario ya procesado (opcional, CSV — deduplicación extra)",
              "required": False, "accept": ".csv", "flag": "--processed", "role": "input_file"},
