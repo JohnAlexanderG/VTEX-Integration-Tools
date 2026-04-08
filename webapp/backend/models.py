@@ -46,6 +46,8 @@ class Tenant(Base):
     users  = relationship("User",         back_populates="tenant", cascade="all, delete-orphan")
     config = relationship("TenantConfig", back_populates="tenant", uselist=False,
                           cascade="all, delete-orphan")
+    permissions = relationship("TenantModulePermission", back_populates="tenant",
+                               cascade="all, delete-orphan")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,3 +103,24 @@ class TenantConfig(Base):
     updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="config")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TenantModulePermission
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TenantModulePermission(Base):
+    __tablename__ = "tenant_module_permissions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "module_key", name="uq_tenant_module_permission"),
+    )
+
+    id         = Column(Integer, primary_key=True, index=True)
+    tenant_id  = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    module_key = Column(String(100), nullable=False)
+    enabled    = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
+
+    tenant = relationship("Tenant", back_populates="permissions")

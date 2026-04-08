@@ -30,7 +30,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from database import Base, engine, get_db                                    # noqa: E402
-from models import Tenant, TenantConfig, User, UserRole                       # noqa: E402
+from models import (                                                           # noqa: E402
+    Tenant,
+    TenantConfig,
+    TenantModulePermission,
+    User,
+    UserRole,
+)
 from auth import (                                                             # noqa: E402
     create_access_token, decrypt_value, encrypt_value,
     hash_password, verify_password,
@@ -774,9 +780,128 @@ TOOLS: List[Dict[str, Any]] = [
 
 TOOLS_BY_ID: Dict[str, Dict] = {t["id"]: t for t in TOOLS}
 
+SECTION_CATALOG: List[Dict[str, str]] = [
+    {"id": "pipeline", "label": "Pipeline", "description": "Flujo completo de integración VTEX."},
+    {"id": "tools", "label": "Herramientas", "description": "Utilidades individuales del proyecto."},
+    {"id": "config", "label": "Configuración", "description": "Credenciales y ajustes del tenant."},
+    {"id": "users", "label": "Usuarios", "description": "Gestión de usuarios del tenant."},
+]
+
+DEFAULT_SECTION_ACCESS: Dict[str, bool] = {
+    section["id"]: True for section in SECTION_CATALOG
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _section_permission_key(section_id: str) -> str:
+    return f"section:{section_id}"
+
+
+def _tool_permission_key(tool_id: str) -> str:
+    return f"tool:{tool_id}"
+
+
+def _permission_denied_message(label: str) -> str:
+    return f"No tienes permisos para acceder a {label.lower()} en esta cuenta."
+
+
+def _permission_catalog() -> Dict[str, Any]:
+    return {
+        "sections": [
+            {
+                **section,
+                "permission_key": _section_permission_key(section["id"]),
+            }
+            for section in SECTION_CATALOG
+        ],
+        "tools": [
+            {
+                "id": tool["id"],
+                "name": tool["name"],
+                "shortName": tool["shortName"],
+                "category": tool["category"],
+                "step": tool.get("step"),
+                "permission_key": _tool_permission_key(tool["id"]),
+            }
+            for tool in TOOLS
+        ],
+    }
+
+
+async def _get_tenant_permission_rows(
+    tenant_id: int,
+    db: AsyncSession,
+) -> List[TenantModulePermission]:
+    result = await db.execute(
+        select(TenantModulePermission).where(TenantModulePermission.tenant_id == tenant_id)
+    )
+    return list(result.scalars().all())
+
+
+async def _get_tenant_permission_map(tenant_id: int, db: AsyncSession) -> Dict[str, bool]:
+    rows = await _get_tenant_permission_rows(tenant_id, db)
+    return {row.module_key: row.enabled for row in rows}
+
+
+def _serialize_permissions(permission_map: Dict[str, bool]) -> Dict[str, Dict[str, bool]]:
+    section_permissions = {
+        section["id"]: permission_map.get(_section_permission_key(section["id"]), True)
+        for section in SECTION_CATALOG
+    }
+    tool_permissions = {
+        tool["id"]: permission_map.get(_tool_permission_key(tool["id"]), True)
+        for tool in TOOLS
+    }
+    return {"sections": section_permissions, "tools": tool_permissions}
+
+
+def _all_enabled_permissions() -> Dict[str, Dict[str, bool]]:
+    return {
+        "sections": dict(DEFAULT_SECTION_ACCESS),
+        "tools": {tool["id"]: True for tool in TOOLS},
+    }
+
+
+def _tool_with_access(tool: Dict[str, Any], permission_map: Dict[str, bool], is_superadmin: bool) -> Dict[str, Any]:
+    tool_data = dict(tool)
+    if is_superadmin:
+        tool_data["enabled"] = True
+        tool_data["blocked_reason"] = None
+        return tool_data
+
+    section_id = tool["category"]
+    section_enabled = permission_map.get(_section_permission_key(section_id), True)
+    tool_enabled = permission_map.get(_tool_permission_key(tool["id"]), True)
+    enabled = section_enabled and tool_enabled
+
+    if not section_enabled:
+        blocked_reason = _permission_denied_message(section_id)
+    elif not tool_enabled:
+        blocked_reason = _permission_denied_message(tool["shortName"])
+    else:
+        blocked_reason = None
+
+    tool_data["enabled"] = enabled
+    tool_data["blocked_reason"] = blocked_reason
+    return tool_data
+
+
+async def _ensure_section_access(section_id: str, user: User, db: AsyncSession) -> Optional[JSONResponse]:
+    if user.role == UserRole.superadmin:
+        return None
+    permission_map = await _get_tenant_permission_map(user.tenant_id, db)
+    enabled = permission_map.get(_section_permission_key(section_id), True)
+    if enabled:
+        return None
+    section = next((item for item in SECTION_CATALOG if item["id"] == section_id), None)
+    label = section["label"] if section else section_id
+    return JSONResponse(
+        status_code=403,
+        content={"error": _permission_denied_message(label)},
+    )
 
 def _send_to_buffer(job_id: str, msg: Dict) -> None:
     log_buffer.setdefault(job_id, []).append(msg)
@@ -1020,6 +1145,7 @@ async def login(body: Dict[str, str], db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(password, user.hashed_password):
         return JSONResponse(status_code=401, content={"error": "Credenciales incorrectas"})
 
+    permission_map = await _get_tenant_permission_map(user.tenant_id, db)
     token = create_access_token(user.id, user.tenant_id, user.role.value)
     return {
         "access_token": token,
@@ -1032,6 +1158,7 @@ async def login(body: Dict[str, str], db: AsyncSession = Depends(get_db)):
             "tenant_id":   user.tenant_id,
             "tenant_slug": tenant.slug,
             "tenant_name": tenant.name,
+            "permissions": _all_enabled_permissions() if user.role == UserRole.superadmin else _serialize_permissions(permission_map),
         },
     }
 
@@ -1040,6 +1167,7 @@ async def login(body: Dict[str, str], db: AsyncSession = Depends(get_db)):
 async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     t_result = await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
     tenant = t_result.scalar_one_or_none()
+    permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
     return {
         "id":          current_user.id,
         "username":    current_user.username,
@@ -1048,6 +1176,7 @@ async def me(current_user: User = Depends(get_current_user), db: AsyncSession = 
         "tenant_id":   current_user.tenant_id,
         "tenant_slug": tenant.slug if tenant else None,
         "tenant_name": tenant.name if tenant else None,
+        "permissions": _all_enabled_permissions() if current_user.role == UserRole.superadmin else _serialize_permissions(permission_map),
     }
 
 
@@ -1080,6 +1209,9 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
 ):
     """Admin ve usuarios de su tenant. Superadmin puede ver todos."""
+    denied = await _ensure_section_access("users", current_user, db)
+    if denied:
+        return denied
     query = select(User, Tenant.slug, Tenant.name).join(Tenant, User.tenant_id == Tenant.id)
     if current_user.role != UserRole.superadmin:
         query = query.where(User.tenant_id == current_user.tenant_id)
@@ -1102,12 +1234,114 @@ async def list_users(
     }
 
 
+@app.get("/api/access")
+async def access_overview(
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    tenants = (await db.execute(select(Tenant).order_by(Tenant.name.asc()))).scalars().all()
+    user_rows = (
+        await db.execute(
+            select(User, Tenant.slug, Tenant.name)
+            .join(Tenant, User.tenant_id == Tenant.id)
+            .order_by(Tenant.name.asc(), User.username.asc())
+        )
+    ).all()
+    permission_rows = (
+        await db.execute(select(TenantModulePermission))
+    ).scalars().all()
+
+    permissions_by_tenant: Dict[int, Dict[str, bool]] = {}
+    for row in permission_rows:
+        permissions_by_tenant.setdefault(row.tenant_id, {})[row.module_key] = row.enabled
+
+    users_by_tenant: Dict[int, List[Dict[str, Any]]] = {}
+    for row in user_rows:
+        users_by_tenant.setdefault(row.User.tenant_id, []).append({
+            "id": row.User.id,
+            "username": row.User.username,
+            "email": row.User.email,
+            "role": row.User.role.value,
+            "is_active": row.User.is_active,
+            "tenant_id": row.User.tenant_id,
+            "tenant_slug": row.slug,
+            "tenant_name": row.name,
+            "created_at": row.User.created_at.isoformat(),
+        })
+
+    return {
+        "catalog": _permission_catalog(),
+        "tenants": [
+            {
+                "id": tenant.id,
+                "name": tenant.name,
+                "slug": tenant.slug,
+                "is_active": tenant.is_active,
+                "users": users_by_tenant.get(tenant.id, []),
+                "permissions": _serialize_permissions(permissions_by_tenant.get(tenant.id, {})),
+            }
+            for tenant in tenants
+        ],
+    }
+
+
+@app.put("/api/access/{tenant_id}")
+async def update_tenant_access(
+    tenant_id: int,
+    body: Dict[str, Any],
+    _: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    ).scalar_one_or_none()
+    if not tenant:
+        return JSONResponse(status_code=404, content={"error": "Tenant no encontrado"})
+
+    permission_updates = body.get("permissions")
+    if not isinstance(permission_updates, dict):
+        return JSONResponse(status_code=400, content={"error": "permissions debe ser un objeto"})
+
+    valid_keys = {
+        _section_permission_key(section["id"]) for section in SECTION_CATALOG
+    } | {
+        _tool_permission_key(tool["id"]) for tool in TOOLS
+    }
+    bool_updates = {
+        key: bool(value)
+        for key, value in permission_updates.items()
+        if key in valid_keys
+    }
+
+    existing_rows = await _get_tenant_permission_rows(tenant_id, db)
+    rows_by_key = {row.module_key: row for row in existing_rows}
+
+    for key, enabled in bool_updates.items():
+        row = rows_by_key.get(key)
+        if row:
+            row.enabled = enabled
+            row.updated_at = datetime.utcnow()
+        else:
+            db.add(TenantModulePermission(
+                tenant_id=tenant_id,
+                module_key=key,
+                enabled=enabled,
+            ))
+
+    await db.commit()
+    permission_map = await _get_tenant_permission_map(tenant_id, db)
+    return {"ok": True, "permissions": _serialize_permissions(permission_map)}
+
+
 @app.post("/api/users")
 async def create_user(
     body: Dict[str, Any],
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    denied = await _ensure_section_access("users", current_user, db)
+    if denied:
+        return denied
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     email    = (body.get("email") or "").strip() or None
@@ -1159,6 +1393,9 @@ async def update_user(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    denied = await _ensure_section_access("users", current_user, db)
+    if denied:
+        return denied
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if not target:
@@ -1256,17 +1493,30 @@ async def update_tenant(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/api/tools")
-def get_tools(current_user: User = Depends(get_current_user)):
+async def get_tools(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Return the full tools configuration."""
-    return {"tools": TOOLS}
+    permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
+    tools = [
+        _tool_with_access(tool, permission_map, current_user.role == UserRole.superadmin)
+        for tool in TOOLS
+    ]
+    return {"tools": tools}
 
 
 @app.get("/api/tools/{tool_id}")
-def get_tool(tool_id: str, current_user: User = Depends(get_current_user)):
+async def get_tool(
+    tool_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     tool = TOOLS_BY_ID.get(tool_id)
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
-    return tool
+    permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
+    return _tool_with_access(tool, permission_map, current_user.role == UserRole.superadmin)
 
 
 @app.get("/api/tools/{tool_id}/template/{input_name}")
@@ -1301,6 +1551,15 @@ async def run_tool(
     tool = TOOLS_BY_ID.get(tool_id)
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
+
+    if current_user.role != UserRole.superadmin:
+        permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
+        tool_access = _tool_with_access(tool, permission_map, False)
+        if not tool_access["enabled"]:
+            return JSONResponse(
+                status_code=403,
+                content={"error": tool_access["blocked_reason"] or "Sin permisos"},
+            )
 
     # Obtener config del tenant actual
     tc = await _get_tenant_config(current_user.tenant_id, db)
@@ -1440,6 +1699,9 @@ async def get_config(
     db: AsyncSession = Depends(get_db),
 ):
     """Devuelve la config VTEX/FTP del tenant del usuario logueado."""
+    denied = await _ensure_section_access("config", current_user, db)
+    if denied:
+        return denied
     tc = await _get_tenant_config(current_user.tenant_id, db)
     values: Dict[str, Any] = {}
     if tc:
@@ -1466,6 +1728,9 @@ async def update_config(
     db: AsyncSession = Depends(get_db),
 ):
     """Actualiza la config VTEX/FTP del tenant. Cifra tokens sensibles con Fernet."""
+    denied = await _ensure_section_access("config", current_user, db)
+    if denied:
+        return denied
     tc = await _get_tenant_config(current_user.tenant_id, db)
     if not tc:
         tc = TenantConfig(tenant_id=current_user.tenant_id)

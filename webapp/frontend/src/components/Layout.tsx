@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut } from 'lucide-react'
+import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
 import { fetchConfig } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
 export default function Layout() {
   const [vtexOk, setVtexOk]         = useState<boolean | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { user, logout, isAdmin }     = useAuth()
+  const { user, logout, isAdmin, isSuperAdmin } = useAuth()
   const navigate                      = useNavigate()
 
   useEffect(() => {
@@ -123,6 +123,21 @@ export default function Layout() {
                 <Users size={16} />
                 Usuarios
               </NavLink>
+
+              {isSuperAdmin && (
+                <NavLink
+                  to="/access"
+                  onClick={closeSidebar}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                    }`
+                  }
+                >
+                  <KeyRound size={16} />
+                  Accesos
+                </NavLink>
+              )}
             </>
           )}
         </nav>

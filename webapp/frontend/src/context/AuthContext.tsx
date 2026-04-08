@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import type { PermissionSet } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,7 @@ export interface AuthUser {
   tenant_id:   number
   tenant_slug: string
   tenant_name: string
+  permissions?: PermissionSet
 }
 
 interface AuthState {
@@ -25,6 +27,8 @@ interface AuthContextValue extends AuthState {
   logout: () => void
   isAdmin:      boolean
   isSuperAdmin: boolean
+  hasSectionAccess: (sectionId: string) => boolean
+  hasToolAccess: (toolId: string) => boolean
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -73,9 +77,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAdmin      = state.user?.role === 'admin' || state.user?.role === 'superadmin'
   const isSuperAdmin = state.user?.role === 'superadmin'
+  const hasSectionAccess = (sectionId: string) => {
+    if (state.user?.role === 'superadmin') return true
+    return state.user?.permissions?.sections?.[sectionId] ?? true
+  }
+  const hasToolAccess = (toolId: string) => {
+    if (state.user?.role === 'superadmin') return true
+    return state.user?.permissions?.tools?.[toolId] ?? true
+  }
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, isAdmin, isSuperAdmin }}>
+    <AuthContext.Provider
+      value={{ ...state, login, logout, isAdmin, isSuperAdmin, hasSectionAccess, hasToolAccess }}
+    >
       {children}
     </AuthContext.Provider>
   )

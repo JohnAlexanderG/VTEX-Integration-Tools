@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Circle, AlertCircle, Info } from 'lucide-react'
 import type { Tool, JobStatus } from '../types'
 import { fetchTools, fetchConfig } from '../api/client'
+import AccessDeniedModal from '../components/AccessDeniedModal'
 import ToolCard from '../components/ToolCard'
+import { useAuth } from '../context/AuthContext'
 
 interface StepState {
   status: JobStatus | null
@@ -11,10 +13,13 @@ interface StepState {
 }
 
 export default function Pipeline() {
+  const { hasSectionAccess, isAdmin } = useAuth()
+  const pipelineAllowed = hasSectionAccess('pipeline')
   const [tools, setTools] = useState<Tool[]>([])
   const [vtexConfigured, setVtexConfigured] = useState(false)
   const [stepStates, setStepStates] = useState<Record<string, StepState>>({})
   const [activeStep, setActiveStep] = useState<string | null>(null)
+  const [showDeniedModal, setShowDeniedModal] = useState(false)
 
   useEffect(() => {
     fetchTools().then((all) => {
@@ -23,8 +28,16 @@ export default function Pipeline() {
         .sort((a, b) => (a.step ?? 0) - (b.step ?? 0))
       setTools(pipeline)
     })
-    fetchConfig().then((c) => setVtexConfigured(c.configured))
-  }, [])
+    if (isAdmin) {
+      fetchConfig().then((c) => setVtexConfigured(c.configured)).catch(() => setVtexConfigured(false))
+    } else {
+      setVtexConfigured(false)
+    }
+  }, [isAdmin])
+
+  useEffect(() => {
+    if (!pipelineAllowed) setShowDeniedModal(true)
+  }, [pipelineAllowed])
 
   const handleComplete = (toolId: string) => (jobId: string, outputFiles: string[]) => {
     setStepStates((prev) => ({
@@ -76,7 +89,13 @@ export default function Pipeline() {
               {/* Step header (collapsible) */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
                 <button
-                  onClick={() => setActiveStep(isOpen ? null : tool.id)}
+                  onClick={() => {
+                    if (!pipelineAllowed || tool.enabled === false) {
+                      setShowDeniedModal(true)
+                      return
+                    }
+                    setActiveStep(isOpen ? null : tool.id)
+                  }}
                   className="w-full flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3 md:py-4 text-left hover:bg-gray-800/40 transition-colors"
                 >
                   <div className="flex-shrink-0">{stepIcon(tool.id)}</div>
@@ -89,6 +108,11 @@ export default function Pipeline() {
                       {tool.requires_vtex && (
                         <span className="text-[10px] px-1.5 py-0.5 bg-vtex-pink/20 text-vtex-pink rounded font-medium">
                           VTEX API
+                        </span>
+                      )}
+                      {tool.enabled === false && (
+                        <span className="rounded border border-red-800 bg-red-950 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                          Bloqueado
                         </span>
                       )}
                     </div>
@@ -118,6 +142,13 @@ export default function Pipeline() {
           )
         })}
       </div>
+
+      <AccessDeniedModal
+        open={showDeniedModal}
+        title="Pipeline bloqueado"
+        message="Tu cuenta no tiene permisos para acceder a esta sección o a alguno de sus pasos. Solicita la habilitación desde Laburu Agencia."
+        onClose={() => setShowDeniedModal(false)}
+      />
     </div>
   )
 }
