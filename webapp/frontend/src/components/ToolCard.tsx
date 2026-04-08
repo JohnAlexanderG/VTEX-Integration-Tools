@@ -58,6 +58,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const { logs, status, outputFiles, exitCode, isConnected } = useJob(jobId)
 
   // ── FTP Deploy state (only relevant for step_44) ──────────────────────────
@@ -80,6 +81,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
   const handleRun = async () => {
     setError(null)
+    setIsSubmitting(true)
     // Reset deploy state on new run
     if (isStockDiff) {
       setDeployStatus(null)
@@ -90,6 +92,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     for (const inp of tool.inputs) {
       if (inp.required && !formValues[inp.name]) {
         setError(`El campo "${inp.label}" es requerido.`)
+        setIsSubmitting(false)
         return
       }
     }
@@ -122,6 +125,8 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
       })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al ejecutar')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -139,8 +144,11 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     }
   }
 
-  const isRunning = status === 'running' || status === 'pending'
-  const isBootstrapping = status === 'pending' || (jobId !== null && !isConnected && status === 'running')
+  const isRunning = isSubmitting || status === 'running' || status === 'pending'
+  const isBootstrapping =
+    isSubmitting ||
+    status === 'pending' ||
+    (jobId !== null && !isConnected && status === 'running')
   const vtexWarning = tool.requires_vtex && !vtexConfigured
 
   // Notify parent when job completes with output files
@@ -192,12 +200,14 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
           </div>
         )}
 
-        {jobId && isBootstrapping && (
+        {isBootstrapping && (
           <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg px-3 py-3 space-y-2">
             <div className="flex items-center gap-2 text-xs text-blue-300">
               <Loader size={14} className="animate-spin flex-shrink-0" />
               <span>
-                Preparando la ejecución y conectando los logs en tiempo real. Esto puede tardar un momento con archivos grandes.
+                {isSubmitting
+                  ? 'Subiendo archivos y enviando la ejecución al servidor. Esto puede tardar un momento con archivos grandes.'
+                  : 'Preparando la ejecución y conectando los logs en tiempo real. Esto puede tardar un momento con archivos grandes.'}
               </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
@@ -244,6 +254,12 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
         <div className="border-t border-gray-800 px-4 md:px-5 py-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-gray-400">Logs</span>
+            {isSubmitting && (
+              <span className="text-xs text-blue-400 flex items-center gap-1.5">
+                <Loader size={12} className="animate-spin" />
+                Enviando archivos…
+              </span>
+            )}
             {status === 'pending' && (
               <span className="text-xs text-blue-400 flex items-center gap-1.5">
                 <Loader size={12} className="animate-spin" />
