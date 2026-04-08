@@ -82,6 +82,10 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
   const handleRun = async () => {
     setError(null)
+    if (tool.enabled === false) {
+      setError(tool.blocked_reason || 'No tienes permisos para ejecutar esta herramienta.')
+      return
+    }
     setIsSubmitting(true)
     // Reset deploy state on new run
     if (isStockDiff) {
@@ -178,6 +182,15 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
       {/* Form */}
       <div className="px-4 md:px-5 py-4 space-y-4">
+        {tool.enabled === false && (
+          <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2">
+            <AlertTriangle size={14} className="flex-shrink-0 text-red-400" />
+            <span className="text-xs text-red-300">
+              {tool.blocked_reason || 'No tienes permisos para ejecutar esta herramienta.'}
+            </span>
+          </div>
+        )}
+
         {vtexWarning && (
           <div className="flex items-center gap-2 bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-3 py-2">
             <AlertTriangle size={14} className="text-yellow-400 flex-shrink-0" />
@@ -222,7 +235,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
         <div className="flex items-center gap-3 pt-1 flex-wrap">
           <button
             onClick={handleRun}
-            disabled={isRunning || vtexWarning}
+            disabled={isRunning || vtexWarning || tool.enabled === false}
             className="flex items-center gap-2 px-4 py-2 bg-vtex-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
           >
             {isRunning ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}

@@ -21,6 +21,8 @@ export interface Tool {
   script: string
   requires_vtex: boolean
   inputs: ToolInput[]
+  enabled?: boolean
+  blocked_reason?: string | null
 }
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
@@ -50,4 +52,51 @@ export interface LogEntry {
 export interface Config {
   configured: boolean
   values: Record<string, string>
+}
+
+export interface PermissionSet {
+  sections: Record<string, boolean>
+  tools: Record<string, boolean>
+}
+
+export interface AccessCatalogSection {
+  id: string
+  label: string
+  description: string
+  permission_key: string
+}
+
+export interface AccessCatalogTool {
+  id: string
+  name: string
+  shortName: string
+  category: 'pipeline' | 'tools'
+  step?: number
+  permission_key: string
+}
+
+export interface AccessCatalog {
+  sections: AccessCatalogSection[]
+  tools: AccessCatalogTool[]
+}
+
+export interface TenantAccessUser {
+  id: number
+  username: string
+  email: string | null
+  role: string
+  is_active: boolean
+  tenant_id: number
+  tenant_slug: string
+  tenant_name: string
+  created_at: string
+}
+
+export interface TenantAccess {
+  id: number
+  name: string
+  slug: string
+  is_active: boolean
+  users: TenantAccessUser[]
+  permissions: PermissionSet
 }

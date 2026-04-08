@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Save, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react'
 import { fetchConfig, updateConfig } from '../api/client'
+import AccessDeniedModal from '../components/AccessDeniedModal'
+import { useAuth } from '../context/AuthContext'
 
 const VTEX_FIELDS = [
   {
@@ -124,6 +126,8 @@ function ConfigField({
 }
 
 export default function Config() {
+  const { hasSectionAccess } = useAuth()
+  const configAllowed = hasSectionAccess('config')
   const [values, setValues] = useState<Record<string, string>>({})
   const [showVtexToken, setShowVtexToken] = useState(false)
   const [showFtpPassword, setShowFtpPassword] = useState(false)
@@ -132,16 +136,22 @@ export default function Config() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showDeniedModal, setShowDeniedModal] = useState(false)
 
   useEffect(() => {
-      fetchConfig()
+    if (!configAllowed) {
+      setLoading(false)
+      setShowDeniedModal(true)
+      return
+    }
+    fetchConfig()
       .then((c) => {
         setValues(c.values)
         setConfigured(c.configured)
         setFtpConfigured(Boolean(c.values.FTP_SERVER && c.values.FTP_USER && c.values.FTP_PASSWORD))
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [configAllowed])
 
   const handleSave = async () => {
     setError(null)
@@ -284,6 +294,13 @@ export default function Config() {
         <p>Las credenciales se guardan por tenant y son leídas automáticamente por el backend y los scripts Python.</p>
         <p>Los secretos sensibles como tokens y contraseñas se almacenan cifrados.</p>
       </div>
+
+      <AccessDeniedModal
+        open={showDeniedModal}
+        title="Configuración bloqueada"
+        message="Tu cuenta no tiene permisos para entrar a esta sección. Solicita la habilitación desde Laburu Agencia."
+        onClose={() => setShowDeniedModal(false)}
+      />
     </div>
   )
 }

@@ -2,20 +2,33 @@ import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
 import type { Tool } from '../types'
 import { fetchTools, fetchConfig } from '../api/client'
+import AccessDeniedModal from '../components/AccessDeniedModal'
 import ToolCard from '../components/ToolCard'
+import { useAuth } from '../context/AuthContext'
 
 export default function Tools() {
+  const { hasSectionAccess, isAdmin } = useAuth()
+  const toolsAllowed = hasSectionAccess('tools')
   const [tools, setTools] = useState<Tool[]>([])
   const [vtexConfigured, setVtexConfigured] = useState(false)
   const [search, setSearch] = useState('')
   const [activeToolId, setActiveToolId] = useState<string | null>(null)
+  const [showDeniedModal, setShowDeniedModal] = useState(false)
 
   useEffect(() => {
     fetchTools().then((all) => {
       setTools(all.filter((t) => t.category === 'tools'))
     })
-    fetchConfig().then((c) => setVtexConfigured(c.configured))
-  }, [])
+    if (isAdmin) {
+      fetchConfig().then((c) => setVtexConfigured(c.configured)).catch(() => setVtexConfigured(false))
+    } else {
+      setVtexConfigured(false)
+    }
+  }, [isAdmin])
+
+  useEffect(() => {
+    if (!toolsAllowed) setShowDeniedModal(true)
+  }, [toolsAllowed])
 
   const filtered = tools.filter(
     (t) =>
@@ -53,7 +66,13 @@ export default function Tools() {
           return (
             <div key={tool.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
               <button
-                onClick={() => setActiveToolId(isOpen ? null : tool.id)}
+                onClick={() => {
+                  if (!toolsAllowed || tool.enabled === false) {
+                    setShowDeniedModal(true)
+                    return
+                  }
+                  setActiveToolId(isOpen ? null : tool.id)
+                }}
                 className="w-full flex items-center justify-between gap-3 px-4 md:px-5 py-3 md:py-4 text-left hover:bg-gray-800/40 transition-colors"
               >
                 <div className="min-w-0">
@@ -62,6 +81,11 @@ export default function Tools() {
                     {tool.requires_vtex && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-vtex-pink/20 text-vtex-pink rounded font-medium">
                         VTEX API
+                      </span>
+                    )}
+                    {tool.enabled === false && (
+                      <span className="rounded border border-red-800 bg-red-950 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                        Bloqueado
                       </span>
                     )}
                   </div>
@@ -82,6 +106,13 @@ export default function Tools() {
           )
         })}
       </div>
+
+      <AccessDeniedModal
+        open={showDeniedModal}
+        title="Herramientas bloqueadas"
+        message="Tu cuenta no tiene permisos para acceder a esta sección o a alguna de sus herramientas. Solicita la habilitación desde Laburu Agencia."
+        onClose={() => setShowDeniedModal(false)}
+      />
     </div>
   )
 }

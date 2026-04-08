@@ -7,6 +7,7 @@ import Pipeline from './pages/Pipeline'
 import Tools from './pages/Tools'
 import Config from './pages/Config'
 import Users from './pages/Users'
+import AccessManagement from './pages/AccessManagement'
 
 export default function App() {
   return (
@@ -43,6 +44,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['admin', 'superadmin']}>
                   <Users />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="access"
+              element={
+                <ProtectedRoute roles={['superadmin']}>
+                  <AccessManagement />
                 </ProtectedRoute>
               }
             />

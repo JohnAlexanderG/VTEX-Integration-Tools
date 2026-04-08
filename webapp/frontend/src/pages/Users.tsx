@@ -2,6 +2,7 @@ import { useState, useEffect, FormEvent } from 'react'
 import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, ToggleLeft, ToggleRight } from 'lucide-react'
 import { fetchUsers, createUser, updateUser, type ApiUser } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import AccessDeniedModal from '../components/AccessDeniedModal'
 
 type RoleFilter = 'all' | 'admin' | 'operator'
 
@@ -18,7 +19,8 @@ const ROLE_COLORS: Record<string, string> = {
 }
 
 export default function Users() {
-  const { user: me, isSuperAdmin } = useAuth()
+  const { user: me, isSuperAdmin, hasSectionAccess } = useAuth()
+  const usersAllowed = hasSectionAccess('users')
 
   const [users,       setUsers]       = useState<ApiUser[]>([])
   const [loading,     setLoading]     = useState(true)
@@ -26,6 +28,7 @@ export default function Users() {
   const [filter,      setFilter]      = useState<RoleFilter>('all')
   const [showCreate,  setShowCreate]  = useState(false)
   const [saving,      setSaving]      = useState(false)
+  const [showDeniedModal, setShowDeniedModal] = useState(false)
 
   // Formulario de nuevo usuario
   const [newUsername, setNewUsername] = useState('')
@@ -35,6 +38,11 @@ export default function Users() {
   const [createError, setCreateError] = useState('')
 
   async function load() {
+    if (!usersAllowed) {
+      setLoading(false)
+      setShowDeniedModal(true)
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -46,7 +54,10 @@ export default function Users() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [usersAllowed])
+  useEffect(() => {
+    if (!usersAllowed) setShowDeniedModal(true)
+  }, [usersAllowed])
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
@@ -269,6 +280,13 @@ export default function Users() {
           })}
         </div>
       )}
+
+      <AccessDeniedModal
+        open={showDeniedModal}
+        title="Usuarios bloqueados"
+        message="Tu cuenta no tiene permisos para administrar usuarios en este tenant. Solicita la habilitación desde Laburu Agencia."
+        onClose={() => setShowDeniedModal(false)}
+      />
     </div>
   )
 }

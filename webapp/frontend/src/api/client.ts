@@ -1,4 +1,4 @@
-import type { Tool, Job, Config } from '../types'
+import type { AccessCatalog, Config, Job, PermissionSet, TenantAccess, Tool } from '../types'
 
 const BASE = '/api'
 
@@ -197,4 +197,26 @@ export async function changePassword(currentPassword: string, newPassword: strin
     const err = await res.json().catch(() => ({ error: 'Error al cambiar contraseña' }))
     throw new Error(err.error)
   }
+}
+
+// ─── Tenant Access API ───────────────────────────────────────────────────────
+
+export async function fetchAccessOverview(): Promise<{ catalog: AccessCatalog; tenants: TenantAccess[] }> {
+  const res = await apiFetch(`${BASE}/access`)
+  if (!res.ok) throw new Error('Failed to fetch access overview')
+  return res.json()
+}
+
+export async function updateTenantAccess(
+  tenantId: number,
+  permissions: Record<string, boolean>,
+): Promise<PermissionSet> {
+  const res = await apiFetch(`${BASE}/access/${tenantId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ permissions }),
+  })
+  const data = await res.json().catch(() => ({ error: 'Error al actualizar accesos' }))
+  if (!res.ok) throw new Error(data.error || 'Error al actualizar accesos')
+  return data.permissions
 }
