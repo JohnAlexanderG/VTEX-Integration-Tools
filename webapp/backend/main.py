@@ -9,6 +9,7 @@ import asyncio
 import ftplib
 import json
 import os
+import sys
 import shutil
 import subprocess
 import uuid
@@ -50,9 +51,9 @@ JOBS_BASE.mkdir(exist_ok=True)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-# Find Python executable (prefer project venv)
-_VENV_PYTHON = PROJECT_ROOT / "venv" / "bin" / "python3"
-PYTHON_EXEC = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else "python3"
+# Reuse the same interpreter that is running the backend so tool subprocesses
+# see the same installed dependencies in every environment.
+PYTHON_EXEC = sys.executable or "python3"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App
