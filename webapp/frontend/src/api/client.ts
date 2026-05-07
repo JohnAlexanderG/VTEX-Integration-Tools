@@ -100,6 +100,24 @@ export function getFileDownloadUrl(jobId: string, filename: string): string {
   return `${BASE}/jobs/${jobId}/files/${encodeURIComponent(filename)}`
 }
 
+export async function downloadJobFile(jobId: string, filename: string): Promise<void> {
+  const res = await apiFetch(getFileDownloadUrl(jobId, filename))
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'No se pudo descargar el archivo' }))
+    throw new Error(err.error || 'No se pudo descargar el archivo')
+  }
+
+  const blob = await res.blob()
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 // ─── FTP Deploy ───────────────────────────────────────────────────────────────
 
 export interface DeployResult {
