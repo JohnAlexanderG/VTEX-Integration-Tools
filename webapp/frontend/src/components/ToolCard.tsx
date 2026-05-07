@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Square, ChevronDown, ChevronUp, AlertTriangle, Download, Upload, CheckCircle, XCircle, Loader } from 'lucide-react'
 import type { Tool, JobStatus } from '../types'
-import { runTool, getFileDownloadUrl, deployToFtp, fetchFtpStatus } from '../api/client'
+import { runTool, downloadJobFile, deployToFtp, fetchFtpStatus } from '../api/client'
 import type { DeployResult, FtpStatus } from '../api/client'
 import { useJob } from '../hooks/useJob'
 import FormField from './FormField'
@@ -151,6 +151,15 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     }
   }
 
+  const handleDownload = async (filename: string) => {
+    if (!jobId) return
+    try {
+      await downloadJobFile(jobId, filename)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'No se pudo descargar el archivo')
+    }
+  }
+
   const isRunning = isSubmitting || status === 'running' || status === 'pending'
   const isBootstrapping =
     isSubmitting ||
@@ -164,6 +173,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   }
 
   const showDeploySection = isStockDiff && status === 'completed' && jobId && !lastRunWasDryRun
+  const deployHasLambdaWarning = deployResult?.ok && !deployResult.lambda_invoked
 
   return (
     <div ref={cardRef} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -305,17 +315,19 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
           {outputFiles.length > 0 && (
             <div>
               <p className="text-xs font-medium text-gray-400 mb-2">Archivos de salida</p>
-              <div className="flex flex-wrap gap-2">
-                {outputFiles.map((filename) => (
-                  <a
+                <div className="flex flex-wrap gap-2">
+                  {outputFiles.map((filename) => (
+                  <button
                     key={filename}
-                    href={getFileDownloadUrl(jobId, filename)}
-                    download={filename}
+                    type="button"
+                    onClick={() => {
+                      void handleDownload(filename)
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors max-w-full"
                   >
                     <Download size={12} className="flex-shrink-0" />
                     <span className="truncate">{filename}</span>
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
@@ -370,19 +382,31 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
           {/* Deploy result */}
           {deployResult && deployStatus === 'done' && (
             <div className="space-y-2">
-              <div className="flex items-start gap-2 bg-green-900/20 border border-green-700/40 rounded-lg px-3 py-2">
-                <CheckCircle size={13} className="text-green-400 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-green-300 space-y-0.5 min-w-0">
+              <div className={`flex items-start gap-2 rounded-lg px-3 py-2 ${
+                deployHasLambdaWarning
+                  ? 'bg-yellow-900/20 border border-yellow-700/40'
+                  : 'bg-green-900/20 border border-green-700/40'
+              }`}>
+                {deployHasLambdaWarning ? (
+                  <AlertTriangle size={13} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle size={13} className="text-green-400 flex-shrink-0 mt-0.5" />
+                )}
+                <div className={`text-xs space-y-0.5 min-w-0 ${
+                  deployHasLambdaWarning ? 'text-yellow-300' : 'text-green-300'
+                }`}>
                   <div className="break-words">
                     Archivo subido al FTP:{' '}
-                    <code className="text-green-200 break-all">{deployResult.remote_filename}</code>
+                    <code className={`${deployHasLambdaWarning ? 'text-yellow-200' : 'text-green-200'} break-all`}>
+                      {deployResult.remote_filename}
+                    </code>
                   </div>
                   {deployResult.lambda_invoked ? (
                     <div>
                       Lambda <code className="text-green-200">{deployResult.lambda_function}</code> invocada correctamente.
                     </div>
                   ) : (
-                    <div className="text-yellow-300">
+                    <div>
                       FTP OK — Lambda no invocada: {deployResult.lambda_error}
                     </div>
                   )}
