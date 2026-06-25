@@ -16,7 +16,7 @@ export interface Tool {
   name: string
   shortName: string
   description: string
-  category: 'pipeline' | 'tools'
+  category: 'tools' | string
   step?: number
   script: string
   requires_vtex: boolean
@@ -70,7 +70,7 @@ export interface AccessCatalogTool {
   id: string
   name: string
   shortName: string
-  category: 'pipeline' | 'tools'
+  category: 'tools' | string
   step?: number
   permission_key: string
 }

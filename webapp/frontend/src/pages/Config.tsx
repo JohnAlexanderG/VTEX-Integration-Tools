@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { Save, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react'
 import { fetchConfig, updateConfig } from '../api/client'
-import AccessDeniedModal from '../components/AccessDeniedModal'
 import { useAuth } from '../context/AuthContext'
 
 const VTEX_FIELDS = [
@@ -35,13 +35,13 @@ const VTEX_FIELDS = [
   },
 ]
 
-const PIPELINE_FIELDS = [
+const INVENTORY_DELIVERY_FIELDS = [
   {
     key: 'FTP_SERVER',
     label: 'FTP Server',
     type: 'text',
     placeholder: 'ftp.midominio.com',
-    help: 'Servidor FTP para cargar el archivo NDJSON del pipeline',
+    help: 'Servidor FTP para cargar el archivo NDJSON de inventario',
   },
   {
     key: 'FTP_USER',
@@ -136,12 +136,10 @@ export default function Config() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showDeniedModal, setShowDeniedModal] = useState(false)
 
   useEffect(() => {
     if (!configAllowed) {
       setLoading(false)
-      setShowDeniedModal(true)
       return
     }
     fetchConfig()
@@ -181,12 +179,16 @@ export default function Config() {
     )
   }
 
+  if (!configAllowed) {
+    return <Navigate to="/tools" replace />
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-xl">
       <div className="mb-5 md:mb-6">
         <h1 className="text-xl font-bold text-gray-100">Configuración</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Configura credenciales VTEX y del pipeline de inventario sin editar manualmente el archivo <code className="text-gray-400">.env</code>.
+          Configura credenciales VTEX y del envío de inventario sin editar manualmente el archivo <code className="text-gray-400">.env</code>.
         </p>
       </div>
 
@@ -201,7 +203,7 @@ export default function Config() {
             <>
               <XCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
               <span className="text-sm text-red-400">
-                Credenciales VTEX incompletas — algunos pasos del pipeline no funcionarán
+                Credenciales VTEX incompletas — algunas herramientas VTEX no funcionarán
               </span>
             </>
           )}
@@ -210,13 +212,13 @@ export default function Config() {
           {ftpConfigured ? (
             <>
               <CheckCircle size={16} className="text-green-400 flex-shrink-0 mt-0.5" />
-              <span className="text-sm text-green-400">Pipeline de inventario configurado correctamente</span>
+              <span className="text-sm text-green-400">Envío de inventario configurado correctamente</span>
             </>
           ) : (
             <>
               <XCircle size={16} className="text-yellow-400 flex-shrink-0 mt-0.5" />
               <span className="text-sm text-yellow-400">
-                Faltan credenciales del pipeline de inventario — no se podrá enviar por FTP
+                Faltan credenciales del envío de inventario — no se podrá enviar por FTP
               </span>
             </>
           )}
@@ -246,13 +248,13 @@ export default function Config() {
 
         <div className="border-t border-gray-800 pt-5 space-y-5">
           <div>
-            <h2 className="text-sm font-semibold text-gray-100">Pipeline de Inventario</h2>
+            <h2 className="text-sm font-semibold text-gray-100">Envío de inventario</h2>
             <p className="text-xs text-gray-500 mt-1">
               Configuración usada para subir el NDJSON por FTP e invocar la Lambda posterior.
             </p>
           </div>
 
-          {PIPELINE_FIELDS.map((field) => (
+          {INVENTORY_DELIVERY_FIELDS.map((field) => (
             <ConfigField
               key={field.key}
               field={field}
@@ -294,13 +296,6 @@ export default function Config() {
         <p>Las credenciales se guardan por tenant y son leídas automáticamente por el backend y los scripts Python.</p>
         <p>Los secretos sensibles como tokens y contraseñas se almacenan cifrados.</p>
       </div>
-
-      <AccessDeniedModal
-        open={showDeniedModal}
-        title="Configuración bloqueada"
-        message="Tu cuenta no tiene permisos para entrar a esta sección. Solicita la habilitación desde Laburu Agencia."
-        onClose={() => setShowDeniedModal(false)}
-      />
     </div>
   )
 }

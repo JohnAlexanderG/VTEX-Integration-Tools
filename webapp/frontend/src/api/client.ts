@@ -147,7 +147,7 @@ export async function fetchFtpStatus(): Promise<FtpStatus> {
 export async function deployToFtp(jobId: string): Promise<DeployResult> {
   const res  = await apiFetch(`${BASE}/jobs/${jobId}/ftp-deploy`, { method: 'POST' })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Error al enviar al pipeline')
+  if (!res.ok) throw new Error(data.error || 'Error al enviar inventario')
   return data
 }
 
