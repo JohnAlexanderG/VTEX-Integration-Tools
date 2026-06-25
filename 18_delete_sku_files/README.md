@@ -7,8 +7,8 @@ Elimina todos los archivos/imágenes asociados a SKUs en VTEX mediante peticione
 ## Requisitos
 
 - Python 3.6+
-- Dependencias: `requests`, `python-dotenv`
-- Instalación: `pip install requests python-dotenv`
+- Dependencias: `requests`, `python-dotenv`, `openpyxl` para leer maestros `.xlsx`
+- Instalación: `pip install requests python-dotenv openpyxl`
 - Archivo `.env` en el directorio raíz (nivel anterior) con credenciales VTEX
 
 ### Variables de entorno (.env)
@@ -21,6 +21,109 @@ X-VTEX-API-AppToken=tu_app_token
 ```
 
 ## Uso
+
+### Flujo recomendado: eliminar por código de referencia
+
+Use `delete_sku_files_by_refid.py` cuando el archivo de entrada contiene códigos de referencia y necesita cruzarlos contra un maestro `referenceCode -> skuId`.
+
+```bash
+python3 delete_sku_files_by_refid.py <mapping_file> <references_file> [opciones]
+```
+
+El script hace primero:
+
+```text
+GET /api/catalog/pvt/stockkeepingunit/{skuId}/file
+```
+
+Luego elimina cada archivo individualmente con:
+
+```text
+DELETE /api/catalog/pvt/stockkeepingunit/{skuId}/file/{skuFileId}
+```
+
+Esto es necesario porque VTEX requiere el `skuFileId` para borrar cada archivo específico.
+
+#### Ejecución segura (dry-run)
+
+```bash
+python3 delete_sku_files_by_refid.py skus.xlsx referencias.csv --dry-run --delay 1.0
+```
+
+En `--dry-run`, el script sí consulta VTEX con `GET` para listar archivos reales, pero no ejecuta ningún `DELETE`. Los archivos encontrados quedan registrados como `result=simulated`.
+
+#### Ejecución real
+
+```bash
+python3 delete_sku_files_by_refid.py skus.csv referencias.csv --delay 1.0 --output-prefix borrado_imagenes
+```
+
+#### Columnas personalizadas
+
+```bash
+python3 delete_sku_files_by_refid.py skus.csv referencias.csv \
+  --mapping-ref-column RefId \
+  --mapping-sku-column Id \
+  --references-column referenceCode \
+  --dry-run
+```
+
+#### Entradas soportadas
+
+Archivo maestro CSV/XLSX/JSON con `referenceCode` y `skuId`.
+
+Para archivos `.xlsx`, la primera fila puede contener instrucciones o notas; el script toma los encabezados desde la segunda fila. Este formato se detecta automáticamente:
+
+```text
+Fila 1: Learn how to fill out this spreadsheet here
+Fila 2: Product ID | Product Name | SKU ID | SKU Name | SKU reference code
+Fila 3+: datos
+```
+
+Ejemplo CSV equivalente:
+
+```csv
+referenceCode,skuId
+00123,98765
+00124,98766
+```
+
+También detecta alias comunes como `RefId`, `CODIGO SKU`, `_SKUReferenceCode`, `SKU reference code`, `SkuId`, `Id`, `_SkuId` y `SKU ID`.
+
+Archivo objetivo CSV/JSON con referencias:
+
+```csv
+referenceCode
+00123
+00124
+```
+
+O una lista JSON:
+
+```json
+[
+    "00123",
+    "00124"
+]
+```
+
+Todos los códigos se tratan como strings para preservar ceros a la izquierda.
+
+#### Salidas del flujo por referencia
+
+Con el prefijo por defecto se generan:
+
+- `sku_file_deletion_results_{timestamp}.csv`
+- `sku_file_deletion_errors_{timestamp}.csv` si hay errores o referencias sin match
+- `sku_file_deletion_report_{timestamp}.md`
+
+El CSV de resultados incluye `referenceCode`, `skuId`, `skuFileId`, `fileName`, `fileUrl`, `action`, `statusCode`, `result`, `error` y `timestamp`.
+
+> Operación irreversible: ejecute primero con `--dry-run` y revise el reporte antes de correr el modo real.
+
+### Script legacy: eliminar por lista de SKU IDs
+
+El comando existente se mantiene para compatibilidad cuando ya tiene un JSON con SKU IDs. Para entradas por código de referencia, use `delete_sku_files_by_refid.py`.
 
 ```bash
 python3 delete_sku_files.py <input_json> <output_csv> [report_md] [opciones]
