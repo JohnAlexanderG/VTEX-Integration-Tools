@@ -82,10 +82,6 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
   const handleRun = async () => {
     setError(null)
-    if (tool.enabled === false) {
-      setError(tool.blocked_reason || 'No tienes permisos para ejecutar esta herramienta.')
-      return
-    }
     setIsSubmitting(true)
     // Reset deploy state on new run
     if (isStockDiff) {
@@ -192,15 +188,6 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
       {/* Form */}
       <div className="px-4 md:px-5 py-4 space-y-4">
-        {tool.enabled === false && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2">
-            <AlertTriangle size={14} className="flex-shrink-0 text-red-400" />
-            <span className="text-xs text-red-300">
-              {tool.blocked_reason || 'No tienes permisos para ejecutar esta herramienta.'}
-            </span>
-          </div>
-        )}
-
         {vtexWarning && (
           <div className="flex items-center gap-2 bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-3 py-2">
             <AlertTriangle size={14} className="text-yellow-400 flex-shrink-0" />
@@ -245,7 +232,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
         <div className="flex items-center gap-3 pt-1 flex-wrap">
           <button
             onClick={handleRun}
-            disabled={isRunning || vtexWarning || tool.enabled === false}
+            disabled={isRunning || vtexWarning}
             className="flex items-center gap-2 px-4 py-2 bg-vtex-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
           >
             {isRunning ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
@@ -335,12 +322,12 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
         </div>
       )}
 
-      {/* ── Deploy to Pipeline — solo step_44, solo cuando completó ── */}
+      {/* ── Envío de inventario — solo step_44, solo cuando completó ── */}
       {showDeploySection && (
         <div className="border-t border-gray-700 px-4 md:px-5 py-4 bg-gray-800/40 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Upload size={13} className="text-blue-400 flex-shrink-0" />
-            <span className="text-xs font-semibold text-gray-200">Pipeline de inventario</span>
+            <span className="text-xs font-semibold text-gray-200">Envío de inventario</span>
             {ftpStatus && !ftpStatus.ftp_configured && (
               <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 border border-yellow-700/50 rounded">
                 FTP no configurado
@@ -375,7 +362,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
               ) : (
                 <Upload size={14} />
               )}
-              {deployStatus === 'deploying' ? 'Enviando al pipeline…' : 'Enviar al pipeline de inventario'}
+              {deployStatus === 'deploying' ? 'Enviando…' : 'Enviar inventario por FTP'}
             </button>
           )}
 

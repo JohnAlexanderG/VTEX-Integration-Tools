@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Layers, Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
+import { Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
 import { fetchConfig } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
 export default function Layout() {
   const [vtexOk, setVtexOk]         = useState<boolean | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { user, logout, isAdmin, isSuperAdmin } = useAuth()
+  const { user, logout, isAdmin, isSuperAdmin, hasSectionAccess } = useAuth()
   const navigate                      = useNavigate()
+  const hasToolsAccess = hasSectionAccess('tools')
+  const hasConfigAccess = hasSectionAccess('config')
+  const hasUsersAccess = hasSectionAccess('users')
 
   useEffect(() => {
     if (isAdmin) {
@@ -69,60 +72,53 @@ export default function Layout() {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavLink
-            to="/pipeline"
-            onClick={closeSidebar}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
-              }`
-            }
-          >
-            <Layers size={16} />
-            Pipeline
-          </NavLink>
-
-          <NavLink
-            to="/tools"
-            onClick={closeSidebar}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
-              }`
-            }
-          >
-            <Wrench size={16} />
-            Herramientas
-          </NavLink>
+          {hasToolsAccess && (
+            <NavLink
+              to="/tools"
+              onClick={closeSidebar}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                }`
+              }
+            >
+              <Wrench size={16} />
+              Herramientas
+            </NavLink>
+          )}
 
           {/* Solo admin/superadmin */}
           {isAdmin && (
             <>
-              <NavLink
-                to="/config"
-                onClick={closeSidebar}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
-                  }`
-                }
-              >
-                <Settings size={16} />
-                Configuración
-              </NavLink>
+              {hasConfigAccess && (
+                <NavLink
+                  to="/config"
+                  onClick={closeSidebar}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                    }`
+                  }
+                >
+                  <Settings size={16} />
+                  Configuración
+                </NavLink>
+              )}
 
-              <NavLink
-                to="/users"
-                onClick={closeSidebar}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
-                  }`
-                }
-              >
-                <Users size={16} />
-                Usuarios
-              </NavLink>
+              {hasUsersAccess && (
+                <NavLink
+                  to="/users"
+                  onClick={closeSidebar}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                    }`
+                  }
+                >
+                  <Users size={16} />
+                  Usuarios
+                </NavLink>
+              )}
 
               {isSuperAdmin && (
                 <NavLink

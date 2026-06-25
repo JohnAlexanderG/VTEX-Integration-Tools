@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Cargar .env desde la raíz del proyecto (3 niveles arriba de webapp/backend/)
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
-from database import Base, engine, get_db                                    # noqa: E402
+from database import AsyncSessionLocal, Base, engine, get_db                 # noqa: E402
 from models import (                                                           # noqa: E402
     Tenant,
     TenantConfig,
@@ -81,6 +81,7 @@ async def _startup():
     """Crear tablas si no existen al iniciar la aplicación."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _migrate_legacy_pipeline_permissions()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory state
@@ -105,8 +106,8 @@ log_buffer: Dict[str, List[Dict]] = {}
 #   name        – full display name
 #   shortName   – short label
 #   description – help text
-#   category    – "pipeline" | "tools"
-#   step        – integer order in pipeline (pipeline tools only)
+#   category    – "tools"
+#   step        – optional integer order for historical tools
 #   script      – path relative to PROJECT_ROOT
 #   requires_vtex – bool: needs .env VTEX credentials
 #   inputs      – list of form field definitions (see below)
@@ -124,13 +125,13 @@ log_buffer: Dict[str, List[Dict]] = {}
 #   options   – list of strings for select type
 
 TOOLS: List[Dict[str, Any]] = [
-    # ── Pipeline ──────────────────────────────────────────────────────────────
+    # ── Herramientas históricas ───────────────────────────────────────────────
     {
         "id": "step_01",
-        "name": "Paso 01 — Convertir archivo a JSON",
+        "name": "Convertir archivo a JSON",
         "shortName": "Convertir a JSON",
         "description": "Convierte archivos CSV, XLS, XLSX o XLSB a formato JSON.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 1,
         "script": "01_csv_to_json/csv_to_json.py",
         "requires_vtex": False,
@@ -144,10 +145,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_02",
-        "name": "Paso 02 — Transformar campos JSON",
+        "name": "Transformar campos JSON",
         "shortName": "Transformar campos",
         "description": "Normaliza nombres de campos. Separa claves compuestas en campos independientes.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 2,
         "script": "02_data-transform/transform_json_script.py",
         "requires_vtex": False,
@@ -161,10 +162,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_03",
-        "name": "Paso 03 — Procesar jerarquía de categorías",
+        "name": "Procesar jerarquía de categorías",
         "shortName": "Procesar categorías",
         "description": "Combina CATEGORIA, SUBCATEGORIA y LINEA en una jerarquía unificada con separador '>'.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 3,
         "script": "03_transform_json_category/transform_json_category.py",
         "requires_vtex": False,
@@ -179,10 +180,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_04",
-        "name": "Paso 04 — Unificar datasets",
+        "name": "Unificar datasets",
         "shortName": "Unificar datasets",
         "description": "Fusiona datos antiguos (campo SKU) con datos nuevos (campo MECA).",
-        "category": "pipeline",
+        "category": "tools",
         "step": 4,
         "script": "04_unificar_json/unificar_json.py",
         "requires_vtex": False,
@@ -197,10 +198,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_05",
-        "name": "Paso 05 — Comparar datasets (detectar faltantes)",
+        "name": "Comparar datasets (detectar faltantes)",
         "shortName": "Detectar faltantes",
         "description": "Identifica registros en el dataset antiguo ausentes en el nuevo (SKU vs RefId).",
-        "category": "pipeline",
+        "category": "tools",
         "step": 5,
         "script": "05_compare_json_to_csv/compare_json_to_csv.py",
         "requires_vtex": False,
@@ -215,10 +216,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_06",
-        "name": "Paso 06 — Mapear IDs de categorías VTEX",
+        "name": "Mapear IDs de categorías VTEX",
         "shortName": "Mapear categorías",
         "description": "Consulta API VTEX y asigna DepartmentId y CategoryId a los productos.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 6,
         "script": "06_map_category_ids/map_category_ids.py",
         "requires_vtex": True,
@@ -232,10 +233,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_07",
-        "name": "Paso 07 — Extraer marcas de CSV",
+        "name": "Extraer marcas de CSV",
         "shortName": "Extraer marcas",
         "description": "Extrae marcas de CSV (columnas TIPO, SKU, OPCIONES). Crea lookup SKU → Marca.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 7,
         "script": "07_csv_to_json_marca/csv_to_json_marca.py",
         "requires_vtex": False,
@@ -248,10 +249,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_08",
-        "name": "Paso 08 — Resolver BrandId de VTEX",
+        "name": "Resolver BrandId de VTEX",
         "shortName": "Resolver BrandId",
-        "description": "Pipeline: SKU → marca (marcas.json) → BrandId VTEX (via API). Matching normalizado.",
-        "category": "pipeline",
+        "description": "Resuelve BrandId VTEX desde SKU y marcas.json mediante matching normalizado.",
+        "category": "tools",
         "step": 8,
         "script": "08_vtex_brandid_matcher/vtex_brandid_matcher.py",
         "requires_vtex": True,
@@ -270,10 +271,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_09",
-        "name": "Paso 09 — Generar reporte de preparación",
+        "name": "Generar reporte de preparación",
         "shortName": "Reporte VTEX",
         "description": "Clasifica productos: listos / requieren categoría / no se pueden crear.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 9,
         "script": "09_generate_vtex_report/generate_vtex_report.py",
         "requires_vtex": False,
@@ -286,10 +287,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_11",
-        "name": "Paso 11 — Formatear productos para VTEX",
+        "name": "Formatear productos para VTEX",
         "shortName": "Formatear productos",
         "description": "Da formato final para la API de creación VTEX. Genera LinkId SEO-friendly.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 11,
         "script": "11_vtex_product_format_create/vtex_product_formatter.py",
         "requires_vtex": False,
@@ -305,10 +306,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_12",
-        "name": "Paso 12 — Crear productos en VTEX",
+        "name": "Crear productos en VTEX",
         "shortName": "Crear productos",
         "description": "Creación masiva de productos via API VTEX. Rate limiting 1s, reintentos con backoff.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 12,
         "script": "12_vtex_product_create/vtex_product_create.py",
         "requires_vtex": True,
@@ -323,10 +324,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_13",
-        "name": "Paso 13 — Extraer respuestas de creación",
+        "name": "Extraer respuestas de creación",
         "shortName": "Extraer respuestas",
         "description": "Extrae el campo 'response' de los resultados de creación de productos.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 13,
         "script": "13_extract_json_response/extract_response.py",
         "requires_vtex": False,
@@ -340,10 +341,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_14",
-        "name": "Paso 14 — Transformar a formato SKU",
+        "name": "Transformar a formato SKU",
         "shortName": "Formato SKU",
         "description": "Convierte respuestas de productos al formato SKU VTEX con dimensiones y EAN.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 14,
         "script": "14_to_vtex_skus/to_vtex_skus.py",
         "requires_vtex": False,
@@ -360,10 +361,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_15",
-        "name": "Paso 15 — Crear SKUs en VTEX",
+        "name": "Crear SKUs en VTEX",
         "shortName": "Crear SKUs",
         "description": "Creación masiva de SKUs en VTEX. Rate limiting 1s, reintentos con backoff.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 15,
         "script": "15_vtex_sku_create/vtex_sku_create.py",
         "requires_vtex": True,
@@ -378,10 +379,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_16",
-        "name": "Paso 16 — Combinar imágenes con SKUs",
+        "name": "Combinar imágenes con SKUs",
         "shortName": "Combinar imágenes",
         "description": "Combina datos de SKUs con URLs de imágenes desde CSV externo.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 16,
         "script": "16_merge_sku_images/merge_sku_images.py",
         "requires_vtex": False,
@@ -400,10 +401,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_17",
-        "name": "Paso 17 — Subir imágenes a VTEX",
+        "name": "Subir imágenes a VTEX",
         "shortName": "Subir imágenes",
         "description": "Carga masiva de imágenes a SKUs VTEX desde URLs.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 17,
         "script": "17_upload_sku_images/upload_sku_images.py",
         "requires_vtex": True,
@@ -418,10 +419,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_18",
-        "name": "Paso 18 — Eliminar archivos de SKU",
+        "name": "Eliminar archivos de SKU",
         "shortName": "Eliminar archivos",
         "description": "Elimina archivos/imágenes asociados a SKUs en VTEX.",
-        "category": "pipeline",
+        "category": "tools",
         "step": 18,
         "script": "18_delete_sku_files/delete_sku_files_by_refid.py",
         "requires_vtex": True,
@@ -452,10 +453,10 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_24",
-        "name": "Paso 24 — Crear jerarquía de categorías",
+        "name": "Crear jerarquía de categorías",
         "shortName": "Crear categorías",
-        "description": "Crea estructura 3 niveles en VTEX (Dept→Cat→Subcat). Idempotente. ⚠️ Ejecutar ANTES del paso 06.",
-        "category": "pipeline",
+        "description": "Crea estructura 3 niveles en VTEX (Dept→Cat→Subcat). Idempotente. Ejecutar antes del mapeo de categorías.",
+        "category": "tools",
         "step": 24,
         "script": "24_vtex_category_creator/vtex_category_creator.py",
         "requires_vtex": True,
@@ -765,7 +766,7 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "id": "step_44",
-        "name": "Paso 44 — Filtrar diferencias de inventario",
+        "name": "Filtrar diferencias de inventario",
         "shortName": "Diferencias de inventario",
         "description": "Compara inventario ERP completo vs inventario VTEX actual. Exporta CSV y NDJSON con registros que necesitan actualización.",
         "category": "tools",
@@ -798,10 +799,29 @@ TOOLS: List[Dict[str, Any]] = [
 ]
 
 TOOLS_BY_ID: Dict[str, Dict] = {t["id"]: t for t in TOOLS}
+LEGACY_PIPELINE_TOOL_IDS = {
+    "step_01",
+    "step_02",
+    "step_03",
+    "step_04",
+    "step_05",
+    "step_06",
+    "step_07",
+    "step_08",
+    "step_09",
+    "step_11",
+    "step_12",
+    "step_13",
+    "step_14",
+    "step_15",
+    "step_16",
+    "step_17",
+    "step_18",
+    "step_24",
+}
 
 SECTION_CATALOG: List[Dict[str, str]] = [
-    {"id": "pipeline", "label": "Pipeline", "description": "Flujo completo de integración VTEX."},
-    {"id": "tools", "label": "Herramientas", "description": "Utilidades individuales del proyecto."},
+    {"id": "tools", "label": "Herramientas", "description": "Operaciones disponibles del proyecto."},
     {"id": "config", "label": "Configuración", "description": "Credenciales y ajustes del tenant."},
     {"id": "users", "label": "Usuarios", "description": "Gestión de usuarios del tenant."},
 ]
@@ -825,6 +845,32 @@ def _tool_permission_key(tool_id: str) -> str:
 
 def _permission_denied_message(label: str) -> str:
     return f"No tienes permisos para acceder a {label.lower()} en esta cuenta."
+
+
+async def _migrate_legacy_pipeline_permissions() -> None:
+    """Preserve tenants that disabled the former sequential workflow section."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(TenantModulePermission).where(
+                TenantModulePermission.module_key == _section_permission_key("pipeline"),
+                TenantModulePermission.enabled.is_(False),
+            )
+        )
+        legacy_rows = list(result.scalars().all())
+        if not legacy_rows:
+            return
+
+        for legacy_row in legacy_rows:
+            permission_map = await _get_tenant_permission_map(legacy_row.tenant_id, db)
+            for tool_id in LEGACY_PIPELINE_TOOL_IDS:
+                key = _tool_permission_key(tool_id)
+                if key not in permission_map:
+                    db.add(TenantModulePermission(
+                        tenant_id=legacy_row.tenant_id,
+                        module_key=key,
+                        enabled=False,
+                    ))
+        await db.commit()
 
 
 def _permission_catalog() -> Dict[str, Any]:
@@ -891,13 +937,13 @@ def _tool_with_access(tool: Dict[str, Any], permission_map: Dict[str, bool], is_
         tool_data["blocked_reason"] = None
         return tool_data
 
-    section_id = tool["category"]
+    section_id = "tools"
     section_enabled = permission_map.get(_section_permission_key(section_id), True)
     tool_enabled = permission_map.get(_tool_permission_key(tool["id"]), True)
     enabled = section_enabled and tool_enabled
 
     if not section_enabled:
-        blocked_reason = _permission_denied_message(section_id)
+        blocked_reason = _permission_denied_message("Herramientas")
     elif not tool_enabled:
         blocked_reason = _permission_denied_message(tool["shortName"])
     else:
@@ -906,6 +952,22 @@ def _tool_with_access(tool: Dict[str, Any], permission_map: Dict[str, bool], is_
     tool_data["enabled"] = enabled
     tool_data["blocked_reason"] = blocked_reason
     return tool_data
+
+
+def _visible_tools_for_user(
+    tools: List[Dict[str, Any]],
+    permission_map: Dict[str, bool],
+    is_superadmin: bool,
+) -> List[Dict[str, Any]]:
+    visible_tools: List[Dict[str, Any]] = []
+    for tool in tools:
+        tool_access = _tool_with_access(tool, permission_map, is_superadmin)
+        if not tool_access["enabled"]:
+            continue
+        tool_data = dict(tool)
+        tool_data["enabled"] = True
+        visible_tools.append(tool_data)
+    return visible_tools
 
 
 async def _ensure_section_access(section_id: str, user: User, db: AsyncSession) -> Optional[JSONResponse]:
@@ -1516,12 +1578,13 @@ async def get_tools(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return the full tools configuration."""
+    """Return tools visible to the current user."""
     permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
-    tools = [
-        _tool_with_access(tool, permission_map, current_user.role == UserRole.superadmin)
-        for tool in TOOLS
-    ]
+    tools = _visible_tools_for_user(
+        TOOLS,
+        permission_map,
+        current_user.role == UserRole.superadmin,
+    )
     return {"tools": tools}
 
 
@@ -1535,16 +1598,31 @@ async def get_tool(
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
     permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
-    return _tool_with_access(tool, permission_map, current_user.role == UserRole.superadmin)
+    visible_tools = _visible_tools_for_user(
+        [tool],
+        permission_map,
+        current_user.role == UserRole.superadmin,
+    )
+    if not visible_tools:
+        return JSONResponse(status_code=404, content={"error": "Tool not found"})
+    return visible_tools[0]
 
 
 @app.get("/api/tools/{tool_id}/template/{input_name}")
-def download_template(
+async def download_template(
     tool_id: str,
     input_name: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Return a downloadable template file for a tool's file input."""
+    tool = TOOLS_BY_ID.get(tool_id)
+    if not tool:
+        return JSONResponse(status_code=404, content={"error": "Template not found"})
+    permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
+    if not _visible_tools_for_user([tool], permission_map, current_user.role == UserRole.superadmin):
+        return JSONResponse(status_code=404, content={"error": "Template not found"})
+
     filename_base = f"{tool_id}_{input_name}"
     for ext in (".csv", ".json"):
         path = TEMPLATES_DIR / (filename_base + ext)
@@ -1785,7 +1863,7 @@ async def update_config(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FTP Deploy — Stock Diff → Pipeline de inventario
+# FTP Deploy — Stock Diff → envío de inventario
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/api/ftp-status")
@@ -1793,7 +1871,7 @@ async def ftp_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Check whether FTP + AWS credentials are configured for the deploy pipeline."""
+    """Check whether FTP + AWS credentials are configured for inventory delivery."""
     tc = await _get_tenant_config(current_user.tenant_id, db)
     return {
         "ftp_configured":  _tenant_ftp_configured(tc),
@@ -1810,7 +1888,7 @@ async def ftp_deploy(
 ):
     """
     Upload the stock-diff NDJSON output to FTP then invoke Lambda1 (demo-lambda)
-    so the full inventory pipeline runs automatically.
+    so the inventory delivery job runs automatically.
 
     Steps:
       1. Find *_to_update.ndjson in the job output dir

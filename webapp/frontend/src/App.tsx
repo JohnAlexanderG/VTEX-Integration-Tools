@@ -3,7 +3,6 @@ import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Pipeline from './pages/Pipeline'
 import Tools from './pages/Tools'
 import Config from './pages/Config'
 import Users from './pages/Users'
@@ -26,8 +25,8 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/pipeline" replace />} />
-            <Route path="pipeline" element={<Pipeline />} />
+            <Route index element={<Navigate to="/tools" replace />} />
+            <Route path="pipeline" element={<Navigate to="/tools" replace />} />
             <Route path="tools"    element={<Tools />} />
 
             {/* Solo admin y superadmin */}
@@ -58,7 +57,7 @@ export default function App() {
           </Route>
 
           {/* Fallback */}
-          <Route path="*" element={<Navigate to="/pipeline" replace />} />
+          <Route path="*" element={<Navigate to="/tools" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -206,10 +206,9 @@ export default function AccessManagement() {
                       <div key={tool.id} className="flex items-center justify-between gap-4 rounded-xl border border-gray-800 bg-gray-950 px-4 py-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-gray-100">
-                            {tool.category === 'pipeline' && tool.step ? `#${tool.step} ` : ''}
                             {tool.shortName}
                           </p>
-                          <p className="text-xs text-gray-500">{tool.category === 'pipeline' ? 'Pipeline' : 'Herramienta'}</p>
+                          <p className="text-xs text-gray-500">Herramienta</p>
                         </div>
                         <Toggle
                           checked={enabled}

@@ -21,7 +21,7 @@ export default function Login() {
 
   // Si ya está autenticado, redirigir
   useEffect(() => {
-    if (user) navigate('/pipeline', { replace: true })
+    if (user) navigate('/tools', { replace: true })
   }, [user, navigate])
 
   // Cargar tenants disponibles
@@ -55,7 +55,7 @@ export default function Login() {
       }
 
       login(data.access_token, data.user)
-      navigate('/pipeline', { replace: true })
+      navigate('/tools', { replace: true })
     } catch {
       setError('Error de red. Verifica tu conexión.')
     } finally {

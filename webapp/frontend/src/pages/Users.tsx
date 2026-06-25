@@ -1,8 +1,8 @@
 import { useState, useEffect, FormEvent } from 'react'
+import { Navigate } from 'react-router-dom'
 import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, ToggleLeft, ToggleRight } from 'lucide-react'
 import { fetchUsers, createUser, updateUser, type ApiUser } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import AccessDeniedModal from '../components/AccessDeniedModal'
 
 type RoleFilter = 'all' | 'admin' | 'operator'
 
@@ -28,7 +28,6 @@ export default function Users() {
   const [filter,      setFilter]      = useState<RoleFilter>('all')
   const [showCreate,  setShowCreate]  = useState(false)
   const [saving,      setSaving]      = useState(false)
-  const [showDeniedModal, setShowDeniedModal] = useState(false)
 
   // Formulario de nuevo usuario
   const [newUsername, setNewUsername] = useState('')
@@ -40,7 +39,6 @@ export default function Users() {
   async function load() {
     if (!usersAllowed) {
       setLoading(false)
-      setShowDeniedModal(true)
       return
     }
     setLoading(true)
@@ -55,9 +53,6 @@ export default function Users() {
   }
 
   useEffect(() => { load() }, [usersAllowed])
-  useEffect(() => {
-    if (!usersAllowed) setShowDeniedModal(true)
-  }, [usersAllowed])
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
@@ -85,6 +80,10 @@ export default function Users() {
   }
 
   const filtered = users.filter(u => filter === 'all' || u.role === filter)
+
+  if (!loading && !usersAllowed) {
+    return <Navigate to="/tools" replace />
+  }
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -280,13 +279,6 @@ export default function Users() {
           })}
         </div>
       )}
-
-      <AccessDeniedModal
-        open={showDeniedModal}
-        title="Usuarios bloqueados"
-        message="Tu cuenta no tiene permisos para administrar usuarios en este tenant. Solicita la habilitación desde Laburu Agencia."
-        onClose={() => setShowDeniedModal(false)}
-      />
     </div>
   )
 }
