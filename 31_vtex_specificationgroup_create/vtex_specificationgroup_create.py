@@ -4,8 +4,11 @@ vtex_specificationgroup_create.py
 
 Creates VTEX specification groups via API from CSV file.
 
-Reads a CSV file with CategoryId and Name columns and creates specification
-groups in VTEX catalog using the /api/catalog/pvt/specificationgroup endpoint.
+Reads a CSV file with category ID and group name columns and creates
+specification groups in VTEX catalog using the
+/api/catalog/pvt/specificationgroup endpoint. Column names are configurable,
+so this can use either the historical CategoryId,Name input or step 61 output
+with Category ID plus a fixed Name.
 
 Features:
 - Rate limiting with configurable delay between requests
@@ -19,11 +22,18 @@ Usage:
     python3 vtex_specificationgroup_create.py input.csv
     python3 vtex_specificationgroup_create.py input.csv --dry-run
     python3 vtex_specificationgroup_create.py input.csv --delay 2.0
+    python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py 61_sku_spec_matcher/resultado_20260601_214458_category_ids.csv \
+        --category-id-column "Category ID" --fixed-name "Especificaciones (SKU)" --dry-run
 
 CSV Format:
     CategoryId,Name
     1309,PUM
     1310,Medidas
+
+Step 61 CSV Format:
+    Category ID
+    893
+    1528
 
 Environment Variables (.env):
     X-VTEX-API-AppKey=your_app_key
@@ -33,7 +43,7 @@ Environment Variables (.env):
 
 Output Files:
     - TIMESTAMP_specificationgroup_creation_successful.json (full API responses)
-    - TIMESTAMP_specificationgroup_creation_successful.csv (GroupId, CategoryId, Name, Position)
+    - TIMESTAMP_specificationgroup_creation_successful.csv (Id, GroupId, CategoryId, Name, Position, StatusCode)
     - TIMESTAMP_specificationgroup_creation_failed.json (error details)
     - TIMESTAMP_specificationgroup_creation_failed.csv (errors for manual review)
     - TIMESTAMP_specificationgroup_creation_REPORT.md (comprehensive report)
@@ -118,41 +128,68 @@ class VTEXSpecificationGroupCreator:
 
         print(f"✅ Credenciales VTEX configuradas para cuenta: {VTEX_ACCOUNT}")
 
-    def load_specification_groups_from_csv(self, csv_file):
+    def load_specification_groups_from_csv(
+        self,
+        csv_file,
+        category_column='CategoryId',
+        name_column='Name',
+        fixed_name=None,
+        encoding='utf-8-sig',
+        deduplicate=True
+    ):
         """Load specification group data from CSV file.
 
         Args:
             csv_file: Path to CSV file
+            category_column: Column name containing the VTEX category ID
+            name_column: Column name containing the specification group name
+            fixed_name: Fixed specification group name to use for every row
+            encoding: CSV file encoding
+            deduplicate: If True, process each CategoryId only once
 
         Returns:
             List of dictionaries with CategoryId and Name
         """
         groups = []
+        seen_category_ids = set()
+        fixed_name_value = fixed_name.strip() if fixed_name is not None else None
 
-        with open(csv_file, 'r', encoding='utf-8', newline='') as f:
+        with open(csv_file, 'r', encoding=encoding, newline='') as f:
             reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
 
             # Validate headers
-            if 'CategoryId' not in reader.fieldnames or 'Name' not in reader.fieldnames:
+            if category_column not in fieldnames:
                 raise ValueError(
-                    f"CSV must have 'CategoryId' and 'Name' columns. "
-                    f"Found: {reader.fieldnames}"
+                    f"CSV must have '{category_column}' column. "
+                    f"Found: {fieldnames}"
+                )
+            if fixed_name_value is None and name_column not in fieldnames:
+                raise ValueError(
+                    f"CSV must have '{name_column}' column when --fixed-name is not used. "
+                    f"Found: {fieldnames}"
                 )
 
             for i, row in enumerate(reader, start=2):  # start=2 (line 1 is header)
                 # Validate CategoryId
+                raw_category_id = row.get(category_column) or ''
                 try:
-                    category_id = int(row['CategoryId'].strip())
+                    category_id = int(raw_category_id.strip())
                 except ValueError:
-                    print(f"⚠️  Line {i}: Invalid CategoryId '{row['CategoryId']}' - skipping")
+                    print(f"⚠️  Line {i}: Invalid {category_column} '{raw_category_id}' - skipping")
+                    continue
+
+                if deduplicate and category_id in seen_category_ids:
+                    print(f"⚠️  Line {i}: Duplicate CategoryId '{category_id}' - skipping")
                     continue
 
                 # Validate Name
-                name = row['Name'].strip()
+                name = fixed_name_value if fixed_name_value is not None else (row.get(name_column) or '').strip()
                 if not name:
                     print(f"⚠️  Line {i}: Empty Name - skipping")
                     continue
 
+                seen_category_ids.add(category_id)
                 groups.append({
                     'CategoryId': category_id,
                     'Name': name,
@@ -177,9 +214,13 @@ class VTEXSpecificationGroupCreator:
 
         category_id = group_data['CategoryId']
         name = group_data['Name']
+        payload = {
+            'CategoryId': category_id,
+            'Name': name
+        }
 
         # Apply rate limiting (except on retries)
-        if self.total_processed > 0 and retry_count == 0:
+        if not self.dry_run and self.total_processed > 0 and retry_count == 0:
             time.sleep(self.delay)
 
         # Dry-run mode
@@ -196,6 +237,7 @@ class VTEXSpecificationGroupCreator:
                     'Position': self.total_processed + 1,
                     'message': 'DRY-RUN mode'
                 },
+                'payload': payload,
                 'status_code': 200,
                 'category_id': category_id,
                 'name': name,
@@ -206,16 +248,10 @@ class VTEXSpecificationGroupCreator:
             self.total_processed += 1
             return True
 
-        # Prepare request body
-        body = {
-            'CategoryId': category_id,
-            'Name': name
-        }
-
         try:
             response = self.session.post(
                 self.endpoint,
-                json=body,
+                json=payload,
                 timeout=self.timeout
             )
 
@@ -227,6 +263,7 @@ class VTEXSpecificationGroupCreator:
                 result = {
                     'group_data': group_data,
                     'response': response_data,
+                    'payload': payload,
                     'status_code': response.status_code,
                     'category_id': category_id,
                     'name': name,
@@ -341,17 +378,23 @@ class VTEXSpecificationGroupCreator:
                 json.dump(self.successful_groups, f, ensure_ascii=False, indent=2)
             print(f"✅ Successful groups exported to: {success_file}")
 
-            # Also export successful as CSV with GroupId for easy reference
+            # Also export successful as CSV with Id/GroupId for easy reference
             success_csv = f"{timestamp}_{output_prefix}_successful.csv"
             with open(success_csv, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=['GroupId', 'CategoryId', 'Name', 'Position'])
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=['Id', 'GroupId', 'CategoryId', 'Name', 'Position', 'StatusCode']
+                )
                 writer.writeheader()
                 for item in self.successful_groups:
+                    group_id = item.get('group_id', 'N/A')
                     writer.writerow({
-                        'GroupId': item.get('group_id', 'N/A'),
+                        'Id': group_id,
+                        'GroupId': group_id,
                         'CategoryId': item['category_id'],
                         'Name': item['name'],
-                        'Position': item.get('position', 'N/A')
+                        'Position': item.get('position', 'N/A'),
+                        'StatusCode': item.get('status_code', 'N/A')
                     })
             print(f"✅ Successful groups CSV exported to: {success_csv}")
 
@@ -491,28 +534,48 @@ Examples:
   # Custom delay and timeout
   python3 vtex_specificationgroup_create.py groups.csv --delay 2.0 --timeout 60
 
+  # Step 61 category IDs with a fixed SKU specification group name
+  python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py 61_sku_spec_matcher/resultado_20260601_214458_category_ids.csv \\
+    --category-id-column "Category ID" --fixed-name "Especificaciones (SKU)" \\
+    --output-prefix sku_specificationgroup_creation --dry-run
+
 CSV Format:
   CategoryId,Name
   1309,PUM
   1310,Medidas
   1311,Características Técnicas
 
+Step 61 CSV Format:
+  Category ID
+  893
+  1528
+
 Output Files:
   - YYYYMMDD_HHMMSS_specificationgroup_creation_successful.json (full API responses)
-  - YYYYMMDD_HHMMSS_specificationgroup_creation_successful.csv (GroupId reference)
+  - YYYYMMDD_HHMMSS_specificationgroup_creation_successful.csv (Id/GroupId reference)
   - YYYYMMDD_HHMMSS_specificationgroup_creation_failed.json (error details)
   - YYYYMMDD_HHMMSS_specificationgroup_creation_failed.csv (errors for review)
   - YYYYMMDD_HHMMSS_specificationgroup_creation_REPORT.md (full report)
         '''
     )
 
-    parser.add_argument('input_csv', help='CSV file with CategoryId and Name columns')
+    parser.add_argument('input_csv', help='CSV file with configurable category ID and name columns')
     parser.add_argument('--delay', type=float, default=1.0,
                        help='Delay between requests in seconds (default: 1.0)')
     parser.add_argument('--timeout', type=int, default=30,
                        help='Request timeout in seconds (default: 30)')
     parser.add_argument('--output-prefix', default='specificationgroup_creation',
                        help='Prefix for output files')
+    parser.add_argument('--category-id-column', default='CategoryId',
+                       help='CSV column containing the VTEX category ID (default: CategoryId)')
+    parser.add_argument('--name-column', default='Name',
+                       help='CSV column containing the group name when --fixed-name is not used (default: Name)')
+    parser.add_argument('--fixed-name', default=None,
+                       help='Fixed specification group name to use for every row')
+    parser.add_argument('--encoding', default='utf-8-sig',
+                       help='CSV file encoding (default: utf-8-sig)')
+    parser.add_argument('--no-deduplicate', action='store_true',
+                       help='Process duplicate category IDs instead of skipping repeats')
     parser.add_argument('--dry-run', action='store_true',
                        help='Simulation mode: validate data without creating groups')
 
@@ -532,7 +595,14 @@ Output Files:
         )
 
         # Load groups from CSV
-        groups = creator.load_specification_groups_from_csv(args.input_csv)
+        groups = creator.load_specification_groups_from_csv(
+            args.input_csv,
+            category_column=args.category_id_column,
+            name_column=args.name_column,
+            fixed_name=args.fixed_name,
+            encoding=args.encoding,
+            deduplicate=not args.no_deduplicate
+        )
 
         if not groups:
             print("No valid groups found in CSV file")

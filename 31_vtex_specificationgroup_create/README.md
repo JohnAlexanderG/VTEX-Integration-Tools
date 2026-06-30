@@ -4,8 +4,8 @@ Crea grupos de especificaciones en VTEX de forma masiva a partir de un archivo C
 
 ## Requisitos
 
-### Archivo CSV
-El archivo CSV debe tener las siguientes columnas:
+### Archivo CSV historico
+El formato historico usa las siguientes columnas:
 - `CategoryId`: ID numérico de la categoría en VTEX
 - `Name`: Nombre del grupo de especificaciones
 
@@ -15,6 +15,15 @@ CategoryId,Name
 1309,PUM
 1310,Medidas
 1311,Características Técnicas
+```
+
+### Formato desde paso 61
+El output `*_category_ids.csv` de `61_sku_spec_matcher` puede usarse sin preprocesar indicando la columna de categoria y un nombre fijo:
+
+```csv
+Category ID
+893
+1528
 ```
 
 ### Credenciales VTEX
@@ -34,10 +43,20 @@ Valida el CSV sin crear grupos:
 python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py example_groups.csv --dry-run
 ```
 
+Dry-run con el CSV del paso 61:
+```bash
+python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py 61_sku_spec_matcher/resultado_20260601_214458_category_ids.csv --category-id-column "Category ID" --fixed-name "Especificaciones (SKU)" --output-prefix sku_specificationgroup_creation --dry-run
+```
+
 ### Creación real
 Crea los grupos de especificaciones:
 ```bash
 python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py example_groups.csv
+```
+
+Creación real del grupo SKU fijo desde el paso 61:
+```bash
+python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py 61_sku_spec_matcher/resultado_20260601_214458_category_ids.csv --category-id-column "Category ID" --fixed-name "Especificaciones (SKU)" --output-prefix sku_specificationgroup_creation
 ```
 
 ### Opciones adicionales
@@ -52,6 +71,13 @@ python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py grou
 python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py --help
 ```
 
+Opciones utiles para formatos alternos:
+- `--category-id-column`: nombre de la columna con el ID de categoria. Default: `CategoryId`.
+- `--name-column`: columna con el nombre del grupo cuando no se usa `--fixed-name`. Default: `Name`.
+- `--fixed-name`: nombre fijo para todas las categorias, por ejemplo `Especificaciones (SKU)`.
+- `--encoding`: encoding del CSV. Default: `utf-8-sig`.
+- `--no-deduplicate`: procesa categorias duplicadas individualmente.
+
 ## Archivos de Salida
 
 El script genera automáticamente:
@@ -60,7 +86,7 @@ El script genera automáticamente:
    - Grupos creados exitosamente con respuestas completas de la API
 
 2. **YYYYMMDD_HHMMSS_specificationgroup_creation_successful.csv**
-   - CSV con GroupId, CategoryId, Name y Position (útil para crear especificaciones)
+   - CSV con `Id`, `GroupId`, `CategoryId`, `Name`, `Position` y `StatusCode` (útil para crear especificaciones)
 
 3. **YYYYMMDD_HHMMSS_specificationgroup_creation_failed.json**
    - Grupos que fallaron con detalles del error
@@ -84,6 +110,7 @@ Cuando se crea un grupo exitosamente, la API retorna:
 ```
 
 El `Id` retornado es el **GroupId** que necesitarás para crear especificaciones dentro de este grupo.
+El CSV exitoso expone ese valor en `Id` y conserva `GroupId` como alias de compatibilidad.
 
 ## Características
 
@@ -91,13 +118,16 @@ El `Id` retornado es el **GroupId** que necesitarás para crear especificaciones
 - ✅ **Retry Logic**: Hasta 3 reintentos con exponential backoff para errores 429
 - ✅ **Dry-run Mode**: Prueba sin crear grupos reales
 - ✅ **Progress Tracking**: Estadísticas cada 10 items procesados
-- ✅ **Validación**: Verifica formato de CSV y credenciales VTEX
+- ✅ **Validación**: Verifica formato de CSV, IDs numéricos y credenciales VTEX
+- ✅ **Deduplicación**: Omite categorías repetidas por defecto para evitar requests duplicados
 - ✅ **Reportes Detallados**: JSON, CSV y Markdown
 - ✅ **Manejo de Errores**: Timeout, rate limit, y errores de red
 
 ## Notas
 
-- El script valida que `CategoryId` sea un número entero
+- El script lee CSV con `utf-8-sig` por defecto para tolerar BOM en headers como `Category ID`
+- El script valida que la columna de categoria sea un número entero
 - Se omiten líneas con CategoryId inválido o Name vacío
+- Las categorias duplicadas se procesan una sola vez por defecto; usa `--no-deduplicate` para enviar cada fila
 - Los errores se reportan pero el script continúa procesando
 - Usa Ctrl+C para interrumpir el proceso de forma segura

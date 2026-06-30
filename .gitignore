@@ -27,6 +27,8 @@ Thumbs.db
 *.ndjson
 !README.md
 !CLAUDE.md
+!AGENTS.md
+!66_vtex_specificationvalue_create/README.md
 !.env.example
 !webapp/backend/templates/**
 
