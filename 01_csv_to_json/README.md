@@ -4,8 +4,9 @@
 
 Suite de herramientas para convertir archivos de datos en diferentes formatos (CSV, XLS, XLSX, XLSB) a formato JSON. Constituye el primer paso del flujo de transformación de datos para integración con la plataforma e-commerce VTEX.
 
-El directorio contiene tres scripts especializados:
+El directorio contiene cuatro scripts especializados:
 - **csv_to_json.py**: Convierte CSV y archivos Excel en JSON
+- **csv_to_xlsx.py**: Convierte archivos CSV a XLSX
 - **xlsx_to_csv.py**: Convierte archivos XLSX/XLS a CSV
 - **xlsb_to_csv.py**: Convierte archivos XLSB (Excel Binary Workbook) a CSV
 
@@ -68,6 +69,25 @@ python3 01_csv_to_json/xlsx_to_csv.py entrada.xlsx salida.csv --header-row 1
 - `output_file`: Archivo CSV de salida
 - `--header-row`: Número de fila (indexado desde 0) donde están los encabezados (opcional, por defecto: 0)
 
+### csv_to_xlsx.py - Convertir CSV a XLSX
+
+**Conversión básica:**
+```bash
+python3 01_csv_to_json/csv_to_xlsx.py entrada.csv salida.xlsx
+```
+
+**Conversión con separador específico:**
+```bash
+python3 01_csv_to_json/csv_to_xlsx.py entrada.csv salida.xlsx --delimiter ";"
+```
+
+**Argumentos:**
+- `input_file`: Archivo CSV de entrada
+- `output_file`: Archivo XLSX de salida
+- `--delimiter`, `--sep`: Separador CSV (opcional, se detecta automáticamente)
+- `--encoding`: Codificación del CSV de entrada (opcional, por defecto: `utf-8-sig`)
+- `--sheet-name`: Nombre de la hoja XLSX de salida (opcional, por defecto: `Sheet1`)
+
 ### xlsb_to_csv.py - Convertir XLSB a CSV
 
 **Conversión básica:**
@@ -128,6 +148,9 @@ SKU,MARCA,DESCRIPCION
 176392,SAMSUNG,Producto 2
 ```
 
+### XLSX (csv_to_xlsx.py)
+Archivo Excel con una hoja que conserva los encabezados y filas del CSV de entrada.
+
 ## Cómo Funciona
 
 ### csv_to_json.py
@@ -144,6 +167,12 @@ SKU,MARCA,DESCRIPCION
 2. **Normalización**: Convierte NaN a strings vacíos
 3. **Conversión**: Transforma a lista de diccionarios
 4. **Escritura**: Exporta a CSV con codificación UTF-8
+
+### csv_to_xlsx.py
+1. **Detección de separador**: Identifica `,`, `;`, tabulador o `|` si no se especifica `--delimiter`
+2. **Lectura**: Carga el CSV con pandas usando `dtype=str` para preservar valores como texto
+3. **Normalización**: Convierte NaN a strings vacíos
+4. **Escritura**: Exporta a XLSX con openpyxl
 
 ## Archivos de Ejemplo
 

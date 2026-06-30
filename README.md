@@ -201,6 +201,13 @@ Pipeline completo para crear y asignar especificaciones de producto en VTEX:
 36: vtex_groups_by_category (consultar grupos existentes)
   ↓
 31: vtex_specificationgroup_create (crear grupos faltantes)
+    Tambien puede crear el grupo SKU fijo `Especificaciones (SKU)` desde el output `*_category_ids.csv` del paso 61.
+  ↓
+64: vtex_specificationgroup_category_validator (validar CategoryId de tercer nivel)
+  ↓
+65: vtex_sku_specification_create (crear campos SKU tipo combo por categoria)
+  ↓
+66: vtex_specificationvalue_create (crear valores de combo por FieldId)
   ↓
 32: vtex_specification_create (crear campos de especificación)
   ↓
@@ -212,6 +219,7 @@ Pipeline completo para crear y asignar especificaciones de producto en VTEX:
 
 Para limpiar especificaciones existentes:
 34: delete_product_specifications
+63: vtex_product_specification_delete (borrado selectivo por Specification IDs o borrado total confirmado)
 ```
 
 ```bash
@@ -236,6 +244,21 @@ python3 36_vtex_groups_by_category/vtex_groups_by_category.py categories.csv --d
 # 31. Crear grupos de especificación en VTEX desde CSV
 python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py input.csv --dry-run
 
+# 31. Crear grupo SKU fijo desde category IDs del paso 61
+python3 31_vtex_specificationgroup_create/vtex_specificationgroup_create.py 61_sku_spec_matcher/resultado_20260601_214458_category_ids.csv --category-id-column "Category ID" --fixed-name "Especificaciones (SKU)" --output-prefix sku_specificationgroup_creation --dry-run
+
+# 64. Validar que los CategoryId exitosos sean de tercer nivel
+python3 64_vtex_specificationgroup_category_validator/validate_specgroup_categories.py 31_vtex_specificationgroup_create/20260601_223044_sku_specificationgroup_creation_successful.csv 61_sku_spec_matcher/tree-categories.json -o resultado_validacion_specgroups
+
+# 65. Crear campos de especificacion SKU tipo combo desde grupos validados
+python3 65_vtex_sku_specification_create/vtex_sku_specification_create.py 64_vtex_specificationgroup_category_validator/resultado_20260602_122525_categoryid_tercer_nivel_correctos.csv 61_sku_spec_matcher/resultado_20260602_113828_encontrados.csv --dry-run
+
+# 66. Crear valores de especificaciones SKU usando FieldId del paso 65
+python3 66_vtex_specificationvalue_create/vtex_specificationvalue_create.py \
+  65_vtex_sku_specification_create/20260602_163212_sku_specification_creation_successful.csv \
+  61_sku_spec_matcher/resultado_20260602_113828_encontrados.csv \
+  --dry-run
+
 # 32. Crear campos de especificación dentro de grupos VTEX
 python3 32_vtex_specification_create/vtex_specification_create.py groups.json specs.json --dry-run
 
@@ -250,6 +273,9 @@ python3 38_add_product_specifications/add_product_specifications.py input.csv --
 
 # 34. Eliminar todas las especificaciones de productos (limpieza)
 python3 34_delete_product_specifications/delete_product_specifications.py products.csv --dry-run
+
+# 63. Eliminar especificaciones de producto listadas en export VTEX
+python3 63_vtex_product_specification_delete/vtex_product_specification_delete.py products.csv product-specs.csv --dry-run
 ```
 
 ### 11. Consulta y Comparación de SKUs
@@ -365,9 +391,13 @@ python3 43_dynamodb_to_json/dynamodb_to_json.py input.csv output.json --indent 4
 ### Pipeline de Especificaciones de Producto (30-40)
 - **`30_match_specifications/`**: Compara y fusiona especificaciones de categoría y producto por SKU con deduplicación opcional
 - **`31_vtex_specificationgroup_create/`**: Crea grupos de especificación en VTEX vía API desde CSV con modo dry-run
+- **`64_vtex_specificationgroup_category_validator/`**: Valida que el `CategoryId` exitoso de grupos de especificación pertenezca al tercer nivel del árbol VTEX
+- **`65_vtex_sku_specification_create/`**: Crea campos de especificación SKU tipo combo por categoria usando grupos validados
+- **`66_vtex_specificationvalue_create/`**: Crea valores de especificaciones SKU por `FieldId` desde el CSV exitoso del paso 65 y los valores encontrados del paso 61
 - **`32_vtex_specification_create/`**: Crea campos de especificación dentro de grupos usando respuestas de creación de grupos y plantillas JSON
 - **`33_sku_productid_matcher/`**: Empareja SKU con _SKUReferenceCode para enriquecer datos con _ProductId
 - **`34_delete_product_specifications/`**: Elimina especificaciones de productos con workers concurrentes y rate limiting token bucket
+- **`63_vtex_product_specification_delete/`**: Elimina especificaciones de producto listadas por `Specification IDs` y permite borrado total solo con confirmacion explicita
 - **`35_unify_category_ids/`**: Extrae IDs únicos de categoría de columnas categorieID y SubcategorieID, deduplicados y ordenados
 - **`36_vtex_groups_by_category/`**: Consulta API VTEX para obtener grupos de especificación por ID de categoría con rate limiting
 - **`37_category_specification_matcher/`**: Empareja productos con especificaciones por CategoryId separando resultados en coincidencias y no coincidencias
