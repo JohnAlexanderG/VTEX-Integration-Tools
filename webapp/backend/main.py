@@ -60,6 +60,25 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Reuse the same interpreter that is running the backend so tool subprocesses
 # see the same installed dependencies in every environment.
 PYTHON_EXEC = sys.executable or "python3"
+STEP_67_PROGRESS_PREFIX = "__VTEX_JOB_PROGRESS__"
+STEP_67_PROGRESS_FIELDS = {
+    "tool_id",
+    "phase",
+    "phase_label",
+    "part_number",
+    "batch_id",
+    "rows",
+    "bytes",
+    "status_name",
+    "http_status",
+    "percent",
+    "completed_parts",
+    "failed_parts",
+    "elapsed_seconds",
+    "attempt",
+    "message",
+    "status_metrics",
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App
@@ -1061,6 +1080,23 @@ async def _broadcast(job_id: str, msg: Dict) -> None:
         ws_clients.get(job_id, []).remove(ws)
 
 
+def _parse_progress_line(text: str) -> Optional[Dict[str, Any]]:
+    if not text.startswith(STEP_67_PROGRESS_PREFIX):
+        return None
+    raw_payload = text[len(STEP_67_PROGRESS_PREFIX):].strip()
+    try:
+        parsed = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return {
+        key: value
+        for key, value in parsed.items()
+        if key in STEP_67_PROGRESS_FIELDS
+    }
+
+
 def _get_env() -> Dict[str, str]:
     if ENV_FILE.exists():
         return dict(dotenv_values(str(ENV_FILE)))
@@ -1179,6 +1215,11 @@ async def _run_job(
                 if not line:
                     break
                 text = line.decode("utf-8", errors="replace")
+                if stream_name == "stdout":
+                    progress = _parse_progress_line(text)
+                    if progress is not None:
+                        await _broadcast(job_id, {"type": "progress", "progress": progress})
+                        continue
                 await _broadcast(job_id, {"type": "log", "stream": stream_name, "text": text})
 
         await asyncio.gather(

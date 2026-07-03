@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { LogEntry, JobStatus } from '../types'
+import type { LogEntry, JobProgress, JobStatus } from '../types'
 import { buildWsUrl } from '../api/client'
 
 interface UseJobResult {
   logs: LogEntry[]
   status: JobStatus | null
+  progress: JobProgress | null
   outputFiles: string[]
   exitCode: number | null
   isConnected: boolean
@@ -13,20 +14,25 @@ interface UseJobResult {
 export function useJob(jobId: string | null): UseJobResult {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [status, setStatus] = useState<JobStatus | null>(null)
+  const [progress, setProgress] = useState<JobProgress | null>(null)
   const [outputFiles, setOutputFiles] = useState<string[]>([])
   const [exitCode, setExitCode] = useState<number | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    if (!jobId) return
-
     // Reset state for new job
     setLogs([])
     setStatus('pending')
+    setProgress(null)
     setOutputFiles([])
     setExitCode(null)
     setIsConnected(false)
+
+    if (!jobId) {
+      setStatus(null)
+      return
+    }
 
     const url = buildWsUrl(jobId)
 
@@ -48,6 +54,8 @@ export function useJob(jobId: string | null): UseJobResult {
           if (msg.exit_code !== undefined) setExitCode(msg.exit_code ?? null)
         } else if (msg.type === 'outputs') {
           setOutputFiles(msg.files ?? [])
+        } else if (msg.type === 'progress') {
+          setProgress(msg.progress ?? null)
         }
       } catch {
         // ignore malformed messages
@@ -60,5 +68,5 @@ export function useJob(jobId: string | null): UseJobResult {
     }
   }, [jobId])
 
-  return { logs, status, outputFiles, exitCode, isConnected }
+  return { logs, status, progress, outputFiles, exitCode, isConnected }
 }
