@@ -7,7 +7,7 @@ export interface ToolInput {
   default?: string | number | boolean
   flag?: string
   position?: number
-  role?: 'input_file' | 'output_file' | 'param'
+  role?: 'input_file' | 'output_file' | 'output_dir' | 'param'
   options?: string[]
 }
 

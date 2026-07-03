@@ -121,7 +121,7 @@ log_buffer: Dict[str, List[Dict]] = {}
 #   default   – default value
 #   flag      – CLI flag string (e.g. "--indent"). If absent → positional.
 #   position  – positional index (0-based). Used when flag is absent.
-#   role      – "input_file" | "output_file" | "param" (default)
+#   role      – "input_file" | "output_file" | "output_dir" | "param" (default)
 #   options   – list of strings for select type
 
 TOOLS: List[Dict[str, Any]] = [
@@ -796,6 +796,66 @@ TOOLS: List[Dict[str, Any]] = [
              "flag": "--verbose"},
         ],
     },
+    {
+        "id": "step_67",
+        "name": "Batch inventory",
+        "shortName": "Batch inventory",
+        "description": "Genera partes CSV para VTEX Logistics batch inventory desde inventario ERP y mapa de SKUs VTEX. Por defecto ejecuta en dry-run.",
+        "category": "tools",
+        "step": 67,
+        "script": "67_vtex_batch_inventory_uploader/vtex_batch_inventory_uploader.py",
+        "requires_vtex": True,
+        "inputs": [
+            {"name": "input_csv", "type": "file",
+             "label": "Inventario ERP (.csv — cols: CODIGO SKU, CODIGO SUCURSAL, EXISTENCIA)",
+             "required": True, "accept": ".csv", "position": 0, "role": "input_file"},
+            {"name": "sku_map", "type": "file",
+             "label": "Mapa VTEX SKU (.csv/.xlsx — cols: _SKUReferenceCode, _SkuId)",
+             "required": True, "accept": ".csv,.xlsx", "flag": "--sku-map", "role": "input_file"},
+            {"name": "warehouse_mode", "type": "select",
+             "label": "Normalización de sucursal",
+             "default": "zfill3", "flag": "--warehouse-mode", "options": ["zfill3", "raw"]},
+            {"name": "sku_ref_column", "type": "text",
+             "label": "Columna referencia SKU",
+             "default": "_SKUReferenceCode", "flag": "--sku-ref-column"},
+            {"name": "sku_id_column", "type": "text",
+             "label": "Columna SkuId",
+             "default": "_SkuId", "flag": "--sku-id-column"},
+            {"name": "sku_map_header_row", "type": "number",
+             "label": "Fila de encabezados del mapa SKU",
+             "default": 2, "flag": "--sku-map-header-row"},
+            {"name": "max_part_mb", "type": "number",
+             "label": "Tamaño máximo por parte (MB)",
+             "default": 450.0, "flag": "--max-part-mb"},
+            {"name": "lead_time", "type": "text",
+             "label": "Lead time",
+             "default": "1.00:00:00", "flag": "--lead-time"},
+            {"name": "unlimited", "type": "checkbox",
+             "label": "Enviar unlimited=true",
+             "flag": "--unlimited"},
+            {"name": "dry_run", "type": "checkbox",
+             "label": "Dry run (generar archivos sin requests a VTEX)",
+             "default": True, "flag": "--dry-run"},
+            {"name": "output_dir", "type": "text",
+             "label": "Directorio de salida",
+             "default": "batch_inventory_output", "flag": "--output-dir", "role": "output_dir"},
+            {"name": "encoding", "type": "text",
+             "label": "Encoding CSV",
+             "default": "utf-8-sig", "flag": "--encoding"},
+            {"name": "poll_interval", "type": "number",
+             "label": "Intervalo de consulta de status (segundos)",
+             "default": 10.0, "flag": "--poll-interval"},
+            {"name": "max_status_wait_minutes", "type": "number",
+             "label": "Espera máxima de status por parte (minutos)",
+             "default": 60.0, "flag": "--max-status-wait-minutes"},
+            {"name": "timeout", "type": "number",
+             "label": "Timeout HTTP por request (segundos)",
+             "default": 60, "flag": "--timeout"},
+            {"name": "min_upload_window_seconds", "type": "number",
+             "label": "Ventana mínima restante de URL prefirmada (segundos)",
+             "default": 300, "flag": "--min-upload-window-seconds"},
+        ],
+    },
 ]
 
 TOOLS_BY_ID: Dict[str, Dict] = {t["id"]: t for t in TOOLS}
@@ -1071,6 +1131,19 @@ def _build_command(tool: Dict, params: Dict[str, str], file_paths: Dict[str, str
     return cmd
 
 
+def _collect_output_files(job_dir: Path) -> List[str]:
+    """Return generated files as relative POSIX paths, excluding uploaded inputs."""
+    output_files = []
+    for path in job_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        rel_path = path.relative_to(job_dir)
+        if rel_path.parts and rel_path.parts[0].startswith("_input_"):
+            continue
+        output_files.append(rel_path.as_posix())
+    return sorted(output_files)
+
+
 async def _run_job(
     job_id: str,
     tool: Dict,
@@ -1119,11 +1192,8 @@ async def _run_job(
                                    "text": f"\n[ERROR] {exc}\n"})
         exit_code = -1
 
-    # Collect output files from job_dir
-    output_files = []
-    for f in job_dir.iterdir():
-        if f.is_file() and not f.name.startswith("_input_"):
-            output_files.append(f.name)
+    # Collect output files from job_dir, including nested tool output folders.
+    output_files = _collect_output_files(job_dir)
 
     job["exit_code"] = exit_code
     job["status"] = "completed" if exit_code == 0 else "failed"
@@ -1701,12 +1771,17 @@ async def run_tool(
                 content={"error": f"El archivo requerido '{inp['label']}' no fue recibido. Por favor vuelve a seleccionar el archivo e intenta de nuevo."},
             )
 
-    # For output files: redirect them into job_dir
+    # For output files/directories: redirect them into job_dir
     for inp in tool["inputs"]:
         if inp.get("role") == "output_file":
             name     = inp["name"]
             filename = params_dict.get(name) or inp.get("default", f"{name}_output")
             out_path = job_dir / Path(filename).name
+            params_dict[name] = str(out_path)
+        elif inp.get("role") == "output_dir":
+            name     = inp["name"]
+            dirname  = params_dict.get(name) or inp.get("default", f"{name}_output")
+            out_path = job_dir / Path(dirname).name
             params_dict[name] = str(out_path)
 
     cmd = _build_command(tool, params_dict, file_paths)
@@ -1771,7 +1846,7 @@ def delete_job(job_id: str, current_user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
-@app.get("/api/jobs/{job_id}/files/{filename}")
+@app.get("/api/jobs/{job_id}/files/{filename:path}")
 def download_file(
     job_id: str,
     filename: str,
@@ -1782,10 +1857,15 @@ def download_file(
         return JSONResponse(status_code=404, content={"error": "Job not found"})
     if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
         return JSONResponse(status_code=403, content={"error": "Sin permisos"})
-    path = Path(job["job_dir"]) / filename
+    job_dir = Path(job["job_dir"]).resolve()
+    path = (job_dir / filename).resolve()
+    try:
+        path.relative_to(job_dir)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": "Invalid file path"})
     if not path.exists() or not path.is_file():
         return JSONResponse(status_code=404, content={"error": "File not found"})
-    return FileResponse(path=str(path), filename=filename)
+    return FileResponse(path=str(path), filename=path.name)
 
 
 # Config ──────────────────────────────────────────────────────────────────────

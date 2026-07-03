@@ -171,6 +171,9 @@ python3 29_filter_inventory/filter_inventory.py inventory.csv vtex_skus.csv
 
 # 23. Cargar inventario en VTEX con rate limiting concurrente
 python3 23_vtex_inventory_uploader/vtex_inventory_uploader.py inventory.json
+
+# 67. Cargar inventario en VTEX por Logistics batch desde CSV ERP usando export VTEX products-and-skus
+python3 67_vtex_batch_inventory_uploader/vtex_batch_inventory_uploader.py inventory.csv --sku-map products-and-skus_homesentry.xlsx --dry-run
 ```
 
 ### 9. Gestión de Categorías
