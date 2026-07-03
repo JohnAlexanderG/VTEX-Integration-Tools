@@ -115,10 +115,20 @@ SKU_MAP_CONFLICT_FIELDNAMES = [
 TERMINAL_SUCCESS = {"DONE", "FINISHED", "COMPLETED", "SUCCESS", "SUCCEEDED", "PROCESSED"}
 TERMINAL_FAILURE = {"FAILED", "FAILURE", "ERROR", "CANCELED", "CANCELLED", "ABORTED", "EXPIRED"}
 TRANSIENT_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+PROGRESS_PREFIX = "__VTEX_JOB_PROGRESS__"
 
 
 class BatchInventoryError(Exception):
     """Error controlado del uploader batch."""
+
+
+def emit_progress(payload: Dict[str, Any]) -> None:
+    """Emit compact JSONL progress for the webapp while keeping CLI output usable."""
+    safe_payload = {"tool_id": "step_67", **payload}
+    print(
+        f"{PROGRESS_PREFIX}{json.dumps(safe_payload, ensure_ascii=False, separators=(',', ':'))}",
+        flush=True,
+    )
 
 
 def load_project_env(env_path: str) -> None:
@@ -770,22 +780,28 @@ def poll_status(
     batch_id: str,
     poll_interval: float,
     max_wait_minutes: float,
+    on_status: Optional[Any] = None,
 ) -> Tuple[int, Dict[str, Any], str, float]:
     started = time.monotonic()
     deadline = started + max_wait_minutes * 60
     last_code = 0
     last_data: Dict[str, Any] = {}
     last_text = ""
+    attempt = 0
 
     while True:
+        attempt += 1
         last_code, last_data, last_text = client.get_status(batch_id)
         name = status_name(last_data)
+        elapsed = time.monotonic() - started
+        if on_status:
+            on_status(last_code, last_data, name, elapsed, attempt)
         if name and (is_success_status(name) or is_failure_status(name)):
-            return last_code, last_data, name, time.monotonic() - started
+            return last_code, last_data, name, elapsed
         if time.monotonic() >= deadline:
             if not name:
                 name = "TIMEOUT"
-            return last_code, last_data, name, time.monotonic() - started
+            return last_code, last_data, name, elapsed
         time.sleep(poll_interval)
 
 
@@ -863,6 +879,44 @@ class PartWriter:
 
 
 class BatchInventoryUploader:
+    PHASE_LABELS = {
+        "dry_run": "Dry-run",
+        "create": "Creando batch",
+        "upload": "Subiendo CSV",
+        "commit": "Confirmando batch",
+        "status_polling": "Consultando status",
+        "done": "Completado",
+        "failed": "Fallido",
+    }
+    PHASE_PROGRESS = {
+        "dry_run": 100,
+        "create": 20,
+        "upload": 45,
+        "commit": 70,
+        "status_polling": 85,
+        "done": 100,
+        "failed": 100,
+    }
+    SAFE_STATUS_KEYS = (
+        "percent",
+        "percentage",
+        "progress",
+        "processed",
+        "processedCount",
+        "processedItems",
+        "processedRows",
+        "total",
+        "totalCount",
+        "totalItems",
+        "totalRows",
+        "success",
+        "successCount",
+        "failed",
+        "failedCount",
+        "errorCount",
+        "errors",
+    )
+
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.output_dir = os.path.abspath(args.output_dir)
@@ -879,6 +933,11 @@ class BatchInventoryUploader:
         self.phase_durations: Counter = Counter()
         self.rows_read = 0
         self.rows_mapped = 0
+        self.parts_started = 0
+        self.parts_completed = 0
+        self.parts_failed = 0
+        self.current_phase = ""
+        self.current_batch_id = ""
         self.resume_done_parts = read_done_part_numbers(self.state_file) if args.resume else set()
 
         os.makedirs(self.output_dir, exist_ok=True)
@@ -895,6 +954,87 @@ class BatchInventoryUploader:
                 self.app_token,
                 timeout=args.timeout,
             )
+
+    def progress_percent(self, phase: str, final_status: str = "") -> int:
+        if phase == "done" or is_success_status(final_status):
+            return 100
+        if phase == "failed" or is_failure_status(final_status):
+            return 100
+        return self.PHASE_PROGRESS.get(phase, 0)
+
+    def safe_status_metrics(self, status_data: Dict[str, Any]) -> Dict[str, Any]:
+        metrics: Dict[str, Any] = {}
+        for key in self.SAFE_STATUS_KEYS:
+            value = status_data.get(key)
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                metrics[key] = value
+        return metrics
+
+    def extract_status_percent(self, status_data: Dict[str, Any]) -> Optional[float]:
+        for key in ("percent", "percentage", "progress"):
+            value = status_data.get(key)
+            if isinstance(value, (int, float)):
+                return max(0.0, min(100.0, float(value)))
+            if isinstance(value, str):
+                try:
+                    return max(0.0, min(100.0, float(value.strip().rstrip("%"))))
+                except ValueError:
+                    pass
+
+        metrics = self.safe_status_metrics(status_data)
+        processed = None
+        total = None
+        for key in ("processed", "processedCount", "processedItems", "processedRows", "success", "successCount"):
+            value = metrics.get(key)
+            if isinstance(value, (int, float)):
+                processed = float(value)
+                break
+        for key in ("total", "totalCount", "totalItems", "totalRows"):
+            value = metrics.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                total = float(value)
+                break
+        if processed is not None and total:
+            return max(0.0, min(100.0, processed / total * 100.0))
+        return None
+
+    def emit_part_progress(
+        self,
+        phase: str,
+        part: Dict[str, Any],
+        batch_id: str = "",
+        status_name_value: str = "",
+        http_status: Any = "",
+        elapsed_seconds: Optional[float] = None,
+        message: str = "",
+        extra: Optional[Dict[str, Any]] = None,
+        percent: Optional[float] = None,
+    ) -> None:
+        self.current_phase = phase
+        self.current_batch_id = batch_id or self.current_batch_id
+        payload: Dict[str, Any] = {
+            "phase": phase,
+            "phase_label": self.PHASE_LABELS.get(phase, phase),
+            "part_number": int(part.get("part_number", 0)),
+            "batch_id": batch_id or "",
+            "rows": int(part.get("rows", 0)),
+            "bytes": int(part.get("bytes", 0)),
+            "status_name": status_name_value,
+            "http_status": http_status,
+            "completed_parts": self.parts_completed,
+            "failed_parts": self.parts_failed,
+        }
+        if percent is not None:
+            payload["percent"] = round(max(0.0, min(100.0, percent)), 2)
+        elif phase != "status_polling" or is_success_status(status_name_value) or is_failure_status(status_name_value):
+            payload["percent"] = self.progress_percent(phase, status_name_value)
+        if elapsed_seconds is not None:
+            payload["elapsed_seconds"] = round(elapsed_seconds, 2)
+        if message:
+            payload["message"] = message
+        if extra:
+            payload.update(extra)
+        emit_progress(payload)
 
     def append_state(self, row: Dict[str, Any]) -> None:
         append_state_row(self.state_file, row, self.args.encoding)
@@ -972,6 +1112,7 @@ class BatchInventoryUploader:
         part_start = time.monotonic()
         batch_id = ""
         final_path = original_path
+        self.parts_started += 1
 
         if self.args.resume and part_number in self.resume_done_parts:
             try:
@@ -983,6 +1124,7 @@ class BatchInventoryUploader:
             return
 
         if self.args.dry_run:
+            self.emit_part_progress("dry_run", part)
             batch_id = f"DRYRUN_part{part_number:04d}"
             final_path = os.path.join(self.parts_dir, f"{batch_id}.csv")
             os.replace(original_path, final_path)
@@ -1002,6 +1144,15 @@ class BatchInventoryUploader:
             self.successful.append(record)
             self.parts.append({**part, "status": "DRY_RUN", "batch_id": batch_id, "path": final_path})
             self.append_state({**record, "Status": "DRY_RUN_DONE", "Phase": "dry_run"})
+            self.parts_completed += 1
+            self.emit_part_progress(
+                "done",
+                {**part, "bytes": os.path.getsize(final_path)},
+                batch_id=batch_id,
+                status_name_value="DRY_RUN",
+                elapsed_seconds=duration,
+                message="Dry-run generado",
+            )
             print(f"Parte {part_number:04d}: dry-run generado {final_path}")
             return
 
@@ -1014,6 +1165,7 @@ class BatchInventoryUploader:
 
         try:
             create_started = time.monotonic()
+            self.emit_part_progress("create", part)
             create_code, batch_id, upload_url, content_type, create_data = self.create_batch_with_window()
             self.phase_durations["create"] += time.monotonic() - create_started
             create_status = str(create_code)
@@ -1031,6 +1183,8 @@ class BatchInventoryUploader:
             })
 
             phase = "upload"
+            part_with_file = {**part, "bytes": os.path.getsize(final_path)}
+            self.emit_part_progress("upload", part_with_file, batch_id=batch_id, http_status=create_code)
             upload_started = time.monotonic()
             upload_status, upload_text = upload_file_to_presigned_url(
                 final_path,
@@ -1053,6 +1207,7 @@ class BatchInventoryUploader:
             })
 
             phase = "commit"
+            self.emit_part_progress("commit", part_with_file, batch_id=batch_id, http_status=upload_status)
             commit_started = time.monotonic()
             commit_status, commit_data, commit_text = self.client.commit_batch(batch_id) if self.client else (0, {}, "")
             self.phase_durations["commit"] += time.monotonic() - commit_started
@@ -1070,11 +1225,35 @@ class BatchInventoryUploader:
             })
 
             phase = "status"
+            self.emit_part_progress("status_polling", part_with_file, batch_id=batch_id, http_status=commit_status)
+
+            def on_status(
+                status_code: int,
+                status_data: Dict[str, Any],
+                name: str,
+                elapsed_seconds: float,
+                attempt: int,
+            ) -> None:
+                self.emit_part_progress(
+                    "status_polling",
+                    part_with_file,
+                    batch_id=batch_id,
+                    status_name_value=name,
+                    http_status=status_code,
+                    elapsed_seconds=elapsed_seconds,
+                    extra={
+                        "attempt": attempt,
+                        "status_metrics": self.safe_status_metrics(status_data),
+                    },
+                    percent=self.extract_status_percent(status_data),
+                )
+
             status_code, status_data, final_status, status_duration = poll_status(
                 self.client,
                 batch_id,
                 poll_interval=self.args.poll_interval,
                 max_wait_minutes=self.args.max_status_wait_minutes,
+                on_status=on_status,
             )
             self.phase_durations["status"] += status_duration
             is_success = is_success_status(final_status)
@@ -1117,6 +1296,16 @@ class BatchInventoryUploader:
                 "Phase": "status",
                 "StatusCode": status_code,
             })
+            self.parts_completed += 1
+            self.emit_part_progress(
+                "done",
+                part_with_file,
+                batch_id=batch_id,
+                status_name_value=final_status,
+                http_status=status_code,
+                elapsed_seconds=duration,
+                message="Parte completada",
+            )
             print(f"Parte {part_number:04d}: DONE batch={batch_id} rows={part['rows']}")
 
         except Exception as exc:
@@ -1142,6 +1331,16 @@ class BatchInventoryUploader:
                 **record,
                 "Status": "FAILED",
             })
+            self.parts_failed += 1
+            self.emit_part_progress(
+                "failed",
+                part,
+                batch_id=batch_id,
+                status_name_value=final_status,
+                http_status=upload_status or commit_status or create_status,
+                elapsed_seconds=duration,
+                message=str(exc),
+            )
             print(f"Parte {part_number:04d}: FAILED fase={phase} batch={batch_id or 'N/A'} error={exc}")
 
     def process_input(self, sku_map: Dict[str, str]) -> None:

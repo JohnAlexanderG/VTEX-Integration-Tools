@@ -27,6 +27,25 @@ export interface Tool {
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
 
+export interface JobProgress {
+  tool_id?: string
+  phase?: 'dry_run' | 'create' | 'upload' | 'commit' | 'status_polling' | 'done' | 'failed' | string
+  phase_label?: string
+  part_number?: number
+  batch_id?: string
+  rows?: number
+  bytes?: number
+  status_name?: string
+  http_status?: number | string
+  percent?: number
+  completed_parts?: number
+  failed_parts?: number
+  elapsed_seconds?: number
+  attempt?: number
+  message?: string
+  status_metrics?: Record<string, string | number | boolean | null>
+}
+
 export interface Job {
   id: string
   tool_id: string
@@ -41,12 +60,13 @@ export interface Job {
 }
 
 export interface LogEntry {
-  type: 'log' | 'status' | 'outputs' | 'ping'
+  type: 'log' | 'status' | 'outputs' | 'progress' | 'ping'
   stream?: 'stdout' | 'stderr' | 'system'
   text?: string
   status?: JobStatus
   exit_code?: number
   files?: string[]
+  progress?: JobProgress
 }
 
 export interface Config {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Square, ChevronDown, ChevronUp, AlertTriangle, Download, Upload, CheckCircle, XCircle, Loader } from 'lucide-react'
-import type { Tool, JobStatus } from '../types'
+import { Play, ChevronDown, ChevronUp, AlertTriangle, Download, Upload, CheckCircle, XCircle, Loader } from 'lucide-react'
+import type { Tool, JobProgress, JobStatus } from '../types'
 import { runTool, downloadJobFile, deployToFtp, fetchFtpStatus } from '../api/client'
 import type { DeployResult, FtpStatus } from '../api/client'
 import { useJob } from '../hooks/useJob'
@@ -38,6 +38,83 @@ function StatusBadge({ status }: { status: JobStatus | null }) {
   )
 }
 
+function BatchInventoryProgress({ progress, isRunning }: { progress: JobProgress | null; isRunning: boolean }) {
+  const rawPercent = typeof progress?.percent === 'number' ? progress.percent : null
+  const percent = rawPercent === null ? null : Math.max(0, Math.min(100, rawPercent))
+  const phase = progress?.phase ?? (isRunning ? 'running' : '')
+  const isDone = phase === 'done'
+  const isFailed = phase === 'failed'
+  const accent = isFailed
+    ? 'bg-red-400'
+    : isDone
+    ? 'bg-green-400'
+    : 'bg-blue-400'
+  const border = isFailed
+    ? 'border-red-800/50 bg-red-900/15'
+    : isDone
+    ? 'border-green-800/50 bg-green-900/15'
+    : 'border-blue-800/50 bg-blue-900/15'
+  const title = progress?.phase_label ?? (isRunning ? 'Procesando batch inventory' : 'Batch inventory')
+  const elapsed = typeof progress?.elapsed_seconds === 'number'
+    ? `${progress.elapsed_seconds.toFixed(1)}s`
+    : null
+
+  return (
+    <div className={`rounded-lg border px-3 py-3 space-y-3 ${border}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-gray-100 truncate">{title}</div>
+          <div className="mt-0.5 text-[11px] text-gray-400">
+            {progress?.part_number ? `Parte ${progress.part_number}` : 'Preparando partes'}
+          </div>
+        </div>
+        {percent !== null && (
+          <span className="text-xs font-medium text-gray-200 tabular-nums">{Math.round(percent)}%</span>
+        )}
+      </div>
+
+      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-800">
+        {percent === null ? (
+          <div className={`h-full w-1/3 rounded-full ${accent} animate-pulse`} />
+        ) : (
+          <div className={`h-full rounded-full ${accent} transition-all duration-500`} style={{ width: `${percent}%` }} />
+        )}
+      </div>
+
+      <div className="grid gap-2 text-[11px] text-gray-400 sm:grid-cols-2">
+        {progress?.batch_id && (
+          <div className="min-w-0">
+            <span className="text-gray-500">Batch: </span>
+            <span className="break-all text-gray-300">{progress.batch_id}</span>
+          </div>
+        )}
+        {progress?.status_name && (
+          <div>
+            <span className="text-gray-500">Status VTEX: </span>
+            <span className={isFailed ? 'text-red-300' : isDone ? 'text-green-300' : 'text-blue-300'}>
+              {progress.status_name}
+            </span>
+          </div>
+        )}
+        {(progress?.completed_parts !== undefined || progress?.failed_parts !== undefined) && (
+          <div>
+            <span className="text-gray-500">Partes: </span>
+            <span className="text-gray-300">
+              {progress.completed_parts ?? 0} OK / {progress.failed_parts ?? 0} error
+            </span>
+          </div>
+        )}
+        {elapsed && (
+          <div>
+            <span className="text-gray-500">Polling: </span>
+            <span className="text-gray-300">{elapsed}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onComplete }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const [formValues, setFormValues] = useState<Record<string, FieldValue>>(() => {
@@ -60,10 +137,11 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [showLogs, setShowLogs] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastRunWasDryRun, setLastRunWasDryRun] = useState(false)
-  const { logs, status, outputFiles, exitCode, isConnected } = useJob(jobId)
+  const { logs, status, progress, outputFiles, exitCode, isConnected } = useJob(jobId)
 
   // ── FTP Deploy state (only relevant for step_44) ──────────────────────────
   const isStockDiff = tool.id === 'step_44'
+  const isBatchInventory = tool.id === 'step_67'
   const [ftpStatus, setFtpStatus] = useState<FtpStatus | null>(null)
   const [deployStatus, setDeployStatus] = useState<DeployStatus>(null)
   const [deployResult, setDeployResult] = useState<DeployResult | null>(null)
@@ -227,6 +305,10 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
               <div className="h-full w-1/3 rounded-full bg-blue-400 animate-pulse" />
             </div>
           </div>
+        )}
+
+        {isBatchInventory && jobId && (progress || isRunning) && (
+          <BatchInventoryProgress progress={progress} isRunning={isRunning} />
         )}
 
         <div className="flex items-center gap-3 pt-1 flex-wrap">

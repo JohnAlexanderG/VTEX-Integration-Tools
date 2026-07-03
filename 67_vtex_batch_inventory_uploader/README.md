@@ -108,6 +108,20 @@ El archivo se divide en partes de maximo `--max-part-mb` MB, por defecto `450`. 
 
 En `--dry-run`, el nombre usa `DRYRUN_part0001.csv` y no se hacen requests a VTEX.
 
+## Progreso en webapp
+
+Cuando este paso corre desde el webapp, el script imprime eventos estructurados de progreso por stdout durante las fases `create`, `upload`, `commit` y `status`. El backend detecta esos eventos, los retransmite por WebSocket y los filtra del panel de logs.
+
+El status real de VTEX se consulta con:
+
+```text
+GET /availability/v1/inventory/batch/{batchId}/status
+```
+
+Si VTEX devuelve un porcentaje o conteos internos, el webapp puede mostrarlos como metricas auxiliares. Si no hay porcentaje real, la barra representa avance por fases y queda en estado de polling hasta recibir un estado terminal exitoso o fallido.
+
+La interfaz CLI no cambia: no hay argumentos nuevos obligatorios. Los eventos se imprimen en stdout junto con los logs humanos existentes, y solo el backend del webapp los interpreta de forma especial.
+
 ## Filas omitidas
 
 Las filas invalidas quedan en `*_batch_inventory_skipped.csv` con una razon concreta:
