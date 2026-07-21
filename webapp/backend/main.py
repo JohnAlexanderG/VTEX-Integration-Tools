@@ -962,15 +962,15 @@ async def _migrate_user_schema() -> None:
         await conn.execute(text("""
             DO $$
             BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
-                    CREATE TYPE userrole AS ENUM ('superadmin', 'admin', 'operator');
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
+                    CREATE TYPE user_role AS ENUM ('superadmin', 'admin', 'operator');
                 END IF;
             END $$;
         """))
         await conn.execute(text("""
             ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS email VARCHAR(150),
-                ADD COLUMN IF NOT EXISTS role userrole NOT NULL DEFAULT 'operator',
+                ADD COLUMN IF NOT EXISTS role user_role NOT NULL DEFAULT 'operator',
                 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
         """))

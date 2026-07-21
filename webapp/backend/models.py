@@ -66,7 +66,7 @@ class User(Base):
     username        = Column(String(50),  nullable=False)
     email           = Column(String(150))
     hashed_password = Column(Text, nullable=False)
-    role            = Column(SAEnum(UserRole), nullable=False, default=UserRole.operator)
+    role            = Column(SAEnum(UserRole, name="user_role"), nullable=False, default=UserRole.operator)
     is_active       = Column(Boolean, nullable=False, default=True)
     created_at      = Column(DateTime, nullable=False, default=datetime.utcnow)
 
