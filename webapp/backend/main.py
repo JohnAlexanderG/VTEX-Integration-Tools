@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile, WebSocket
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select, text, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Cargar .env desde la raíz del proyecto (3 niveles arriba de webapp/backend/)
@@ -100,6 +100,7 @@ async def _startup():
     """Crear tablas si no existen al iniciar la aplicación."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _migrate_user_schema()
     await _migrate_legacy_pipeline_permissions()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -950,6 +951,29 @@ async def _migrate_legacy_pipeline_permissions() -> None:
                         enabled=False,
                     ))
         await db.commit()
+
+
+async def _migrate_user_schema() -> None:
+    """Keep older PostgreSQL installs compatible with the current User model."""
+    if engine.dialect.name != "postgresql":
+        return
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+                    CREATE TYPE userrole AS ENUM ('superadmin', 'admin', 'operator');
+                END IF;
+            END $$;
+        """))
+        await conn.execute(text("""
+            ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS email VARCHAR(150),
+                ADD COLUMN IF NOT EXISTS role userrole NOT NULL DEFAULT 'operator',
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+        """))
 
 
 def _permission_catalog() -> Dict[str, Any]:
