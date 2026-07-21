@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { KeyRound, RefreshCw, Search, Users as UsersIcon } from 'lucide-react'
-import { fetchAccessOverview, updateTenantAccess } from '../api/client'
+import type { FormEvent } from 'react'
+import { KeyRound, Plus, RefreshCw, Search, Users as UsersIcon, X } from 'lucide-react'
+import { createTenant, fetchAccessOverview, updateTenantAccess } from '../api/client'
 import type { AccessCatalog, TenantAccess } from '../types'
 
 function Toggle({
@@ -30,6 +31,16 @@ function Toggle({
   )
 }
 
+function slugifyTenant(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 export default function AccessManagement() {
   const [tenants, setTenants] = useState<TenantAccess[]>([])
   const [catalog, setCatalog] = useState<AccessCatalog>({ sections: [], tools: [] })
@@ -38,15 +49,21 @@ export default function AccessManagement() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [showCreateTenant, setShowCreateTenant] = useState(false)
+  const [tenantName, setTenantName] = useState('')
+  const [tenantSlug, setTenantSlug] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [creatingTenant, setCreatingTenant] = useState(false)
+  const [createTenantError, setCreateTenantError] = useState('')
 
-  async function load() {
+  async function load(nextSelectedTenantId?: number) {
     setLoading(true)
     setError('')
     try {
       const data = await fetchAccessOverview()
       setTenants(data.tenants)
       setCatalog(data.catalog)
-      setSelectedTenantId((current) => current ?? data.tenants[0]?.id ?? null)
+      setSelectedTenantId((current) => nextSelectedTenantId ?? current ?? data.tenants[0]?.id ?? null)
     } catch (e: any) {
       setError(e.message || 'No fue posible cargar los accesos')
     } finally {
@@ -85,6 +102,40 @@ export default function AccessManagement() {
     }
   }
 
+  function handleTenantNameChange(value: string) {
+    setTenantName(value)
+    if (!slugEdited) {
+      setTenantSlug(slugifyTenant(value))
+    }
+  }
+
+  function handleTenantSlugChange(value: string) {
+    setSlugEdited(true)
+    setTenantSlug(slugifyTenant(value))
+  }
+
+  async function handleCreateTenant(e: FormEvent) {
+    e.preventDefault()
+    setCreateTenantError('')
+    setCreatingTenant(true)
+    try {
+      const created = await createTenant({
+        name: tenantName.trim(),
+        slug: slugifyTenant(tenantSlug),
+      })
+      setTenantName('')
+      setTenantSlug('')
+      setSlugEdited(false)
+      setShowCreateTenant(false)
+      setSearch('')
+      await load(created.id)
+    } catch (e: any) {
+      setCreateTenantError(e.message || 'No se pudo crear el tenant')
+    } finally {
+      setCreatingTenant(false)
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -94,20 +145,75 @@ export default function AccessManagement() {
             Desde aquí `Laburu Agencia` puede habilitar secciones y herramientas por cuenta.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={load}
-          className="inline-flex items-center gap-2 self-start rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-800"
-        >
-          <RefreshCw size={15} />
-          Recargar
-        </button>
+        <div className="flex flex-wrap gap-2 self-start">
+          <button
+            type="button"
+            onClick={() => setShowCreateTenant((value) => !value)}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+          >
+            {showCreateTenant ? <X size={15} /> : <Plus size={15} />}
+            {showCreateTenant ? 'Cancelar' : 'Nuevo tenant'}
+          </button>
+          <button
+            type="button"
+            onClick={() => load()}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-800"
+          >
+            <RefreshCw size={15} />
+            Recargar
+          </button>
+        </div>
       </div>
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
+      )}
+
+      {showCreateTenant && (
+        <form
+          onSubmit={handleCreateTenant}
+          className="mb-4 rounded-2xl border border-gray-800 bg-gray-900 p-4"
+        >
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,320px)_auto] md:items-end">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Nombre del tenant</label>
+              <input
+                type="text"
+                value={tenantName}
+                onChange={(e) => handleTenantNameChange(e.target.value)}
+                required
+                placeholder="Nuevo Cliente"
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Slug</label>
+              <input
+                type="text"
+                value={tenantSlug}
+                onChange={(e) => handleTenantSlugChange(e.target.value)}
+                required
+                placeholder="nuevo-cliente"
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={creatingTenant}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Plus size={15} />
+              {creatingTenant ? 'Creando...' : 'Crear tenant'}
+            </button>
+          </div>
+          {createTenantError && (
+            <div className="mt-3 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">
+              {createTenantError}
+            </div>
+          )}
+        </form>
       )}
 
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">

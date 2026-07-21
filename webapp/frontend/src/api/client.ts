@@ -165,6 +165,14 @@ export interface ApiUser {
   created_at:  string
 }
 
+export interface ApiTenant {
+  id:         number
+  name:       string
+  slug:       string
+  is_active:  boolean
+  created_at: string
+}
+
 export async function fetchUsers(): Promise<ApiUser[]> {
   const res = await apiFetch(`${BASE}/users`)
   if (!res.ok) throw new Error('Failed to fetch users')
@@ -192,7 +200,7 @@ export async function createUser(payload: {
 
 export async function updateUser(
   id: number,
-  payload: Partial<{ is_active: boolean; role: string; email: string; password: string }>,
+  payload: Partial<{ is_active: boolean; role: string; email: string; password: string; tenant_id: number }>,
 ): Promise<void> {
   const res = await apiFetch(`${BASE}/users/${id}`, {
     method:  'PUT',
@@ -215,6 +223,26 @@ export async function changePassword(currentPassword: string, newPassword: strin
     const err = await res.json().catch(() => ({ error: 'Error al cambiar contraseña' }))
     throw new Error(err.error)
   }
+}
+
+// ─── Tenants API ─────────────────────────────────────────────────────────────
+
+export async function fetchTenants(): Promise<ApiTenant[]> {
+  const res = await apiFetch(`${BASE}/tenants`)
+  if (!res.ok) throw new Error('Failed to fetch tenants')
+  const data = await res.json()
+  return data.tenants
+}
+
+export async function createTenant(payload: { name: string; slug: string }): Promise<{ id: number }> {
+  const res = await apiFetch(`${BASE}/tenants`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({ error: 'Error al crear tenant' }))
+  if (!res.ok) throw new Error(data.error || 'Error al crear tenant')
+  return { id: data.id }
 }
 
 // ─── Tenant Access API ───────────────────────────────────────────────────────

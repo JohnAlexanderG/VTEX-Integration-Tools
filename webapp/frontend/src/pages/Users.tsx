@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, ToggleLeft, ToggleRight } from 'lucide-react'
-import { fetchUsers, createUser, updateUser, type ApiUser } from '../api/client'
+import { fetchTenants, fetchUsers, createUser, updateUser, type ApiTenant, type ApiUser } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
 type RoleFilter = 'all' | 'admin' | 'operator'
@@ -28,12 +28,15 @@ export default function Users() {
   const [filter,      setFilter]      = useState<RoleFilter>('all')
   const [showCreate,  setShowCreate]  = useState(false)
   const [saving,      setSaving]      = useState(false)
+  const [tenants,     setTenants]     = useState<ApiTenant[]>([])
+  const [movingUserId, setMovingUserId] = useState<number | null>(null)
 
   // Formulario de nuevo usuario
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newEmail,    setNewEmail]    = useState('')
   const [newRole,     setNewRole]     = useState('operator')
+  const [newTenantId, setNewTenantId] = useState('')
   const [createError, setCreateError] = useState('')
 
   async function load() {
@@ -44,7 +47,13 @@ export default function Users() {
     setLoading(true)
     setError('')
     try {
-      setUsers(await fetchUsers())
+      const usersData = await fetchUsers()
+      setUsers(usersData)
+      if (isSuperAdmin) {
+        const tenantData = await fetchTenants()
+        setTenants(tenantData)
+        setNewTenantId((current) => current || String(tenantData[0]?.id ?? ''))
+      }
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -52,14 +61,20 @@ export default function Users() {
     }
   }
 
-  useEffect(() => { load() }, [usersAllowed])
+  useEffect(() => { load() }, [usersAllowed, isSuperAdmin])
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
     setCreateError('')
     setSaving(true)
     try {
-      await createUser({ username: newUsername, password: newPassword, email: newEmail || undefined, role: newRole })
+      await createUser({
+        username: newUsername,
+        password: newPassword,
+        email: newEmail || undefined,
+        role: newRole,
+        tenant_id: isSuperAdmin && newTenantId ? Number(newTenantId) : undefined,
+      })
       setNewUsername(''); setNewPassword(''); setNewEmail(''); setNewRole('operator')
       setShowCreate(false)
       await load()
@@ -76,6 +91,19 @@ export default function Users() {
       await load()
     } catch (e: any) {
       alert(e.message)
+    }
+  }
+
+  async function moveUserToTenant(u: ApiUser, tenantId: number) {
+    if (u.tenant_id === tenantId) return
+    setMovingUserId(u.id)
+    try {
+      await updateUser(u.id, { tenant_id: tenantId })
+      await load()
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setMovingUserId(null)
     }
   }
 
@@ -158,6 +186,24 @@ export default function Users() {
                 {isSuperAdmin && <option value="superadmin">Super Admin</option>}
               </select>
             </div>
+            {isSuperAdmin && (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Tenant</label>
+                <select
+                  value={newTenantId}
+                  onChange={e => setNewTenantId(e.target.value)}
+                  required
+                  className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg
+                             px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {createError && (
               <div className="col-span-2 bg-red-950 border border-red-800 text-red-300 rounded-lg px-3 py-2 text-sm">
@@ -260,6 +306,22 @@ export default function Users() {
                     )}
                   </div>
                 </div>
+
+                {isSuperAdmin && !isMe && (
+                  <select
+                    value={u.tenant_id}
+                    disabled={movingUserId === u.id}
+                    onChange={(e) => moveUserToTenant(u, Number(e.target.value))}
+                    className="w-44 flex-shrink-0 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-gray-100 focus:border-indigo-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Mover usuario a otro tenant"
+                  >
+                    {tenants.map((tenant) => (
+                      <option key={tenant.id} value={tenant.id}>
+                        {tenant.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 {/* Toggle activo (no se puede desactivar a sí mismo) */}
                 {!isMe && (

@@ -1632,6 +1632,32 @@ async def update_user(
         if current_user.role == UserRole.admin and new_role == UserRole.superadmin:
             return JSONResponse(status_code=403, content={"error": "No puedes asignar superadmin"})
         target.role = new_role
+    if "tenant_id" in body:
+        if current_user.role != UserRole.superadmin:
+            return JSONResponse(status_code=403, content={"error": "Solo superadmin puede mover usuarios entre tenants"})
+        if target.id == current_user.id:
+            return JSONResponse(status_code=400, content={"error": "No puedes mover tu propio usuario"})
+        try:
+            new_tenant_id = int(body["tenant_id"])
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={"error": "tenant_id inválido"})
+        tenant = (
+            await db.execute(select(Tenant).where(Tenant.id == new_tenant_id))
+        ).scalar_one_or_none()
+        if not tenant:
+            return JSONResponse(status_code=404, content={"error": "Tenant destino no encontrado"})
+        duplicate = (
+            await db.execute(
+                select(User).where(
+                    User.tenant_id == new_tenant_id,
+                    User.username == target.username,
+                    User.id != target.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if duplicate:
+            return JSONResponse(status_code=409, content={"error": "Ya existe un usuario con ese nombre en el tenant destino"})
+        target.tenant_id = new_tenant_id
     if "password" in body and body["password"]:
         if len(body["password"]) < 8:
             return JSONResponse(status_code=400, content={"error": "Contraseña muy corta"})
