@@ -57,6 +57,7 @@ python3 stock_diff_filter.py vtex_skus.xlsx complete.csv estoque.xls nivelej_202
 Genera:
 - `nivelej_20260212_to_update.csv`
 - `nivelej_20260212_to_update.ndjson`
+- `nivelej_20260212_not_in_vtex.csv`
 - `nivelej_20260212_REPORT.md`
 
 ## Formatos de Entrada
@@ -92,6 +93,14 @@ NDJSON listo para upload a VTEX con campos especificos para inventario.
 {"_SkuId":124,"_SKUReferenceCode":"000099","warehouseId":"001","quantity":50,"unlimitedQuantity":false}
 ```
 
+### {prefix}_not_in_vtex.csv
+CSV con registros del ERP cuyo SKU no existe en el archivo de SKUs VTEX.
+
+```csv
+CODIGO SKU,CODIGO SUCURSAL,EXISTENCIA,Otros...
+999999,095,12,Data3
+```
+
 ### {prefix}_REPORT.md
 Reporte markdown con estadisticas, analisis de filtrado y distribucion de almacenes.
 
@@ -102,7 +111,7 @@ Reporte markdown con estadisticas, analisis de filtrado y distribucion de almace
 3. (Opcional) Cargar inventario ya procesado (CSV) como lookup extra de dedup
 4. Para cada registro del inventario ERP completo:
    - Normalizar SKU y ALMACEN (ceros a izquierda para almacenes cortos)
-   - Si SKU no existe en VTEX -> omitir
+   - Si SKU no existe en VTEX -> exportar a `{prefix}_not_in_vtex.csv` y omitir de actualizaciones
    - Si (SKU, ALMACEN, CANTIDAD) identico al inventario VTEX actual -> omitir
    - (Si --processed) Si identico al procesado -> omitir
    - Si es nuevo o cantidad diferente -> incluir en salida
@@ -126,6 +135,6 @@ El archivo `processed.csv` era una capa extra de deduplicacion para evitar re-en
 - NDJSON requiere que `_SkuId` este disponible; registros sin `_SkuId` se omiten de NDJSON pero se incluyen en CSV
 - Soporta multiples hojas en archivos .xls/.xlsx (se concatenan automaticamente)
 - Muestra progreso cada 100,000 registros procesados
-- Streaming write: CSV y NDJSON se escriben registro por registro (bajo uso de memoria)
+- Streaming write: CSV, CSV de no encontrados y NDJSON se escriben registro por registro (bajo uso de memoria)
 - `--dry-run` analiza sin escribir archivos de salida
 - `--verbose` muestra primeros matches, muestras de datos y logs de debug
