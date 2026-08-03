@@ -788,7 +788,7 @@ TOOLS: List[Dict[str, Any]] = [
         "id": "step_44",
         "name": "Filtrar diferencias de inventario",
         "shortName": "Diferencias de inventario",
-        "description": "Compara inventario ERP completo vs inventario VTEX actual. Exporta CSV y NDJSON con registros que necesitan actualización.",
+        "description": "Compara inventario ERP completo vs inventario VTEX actual. Exporta CSV/NDJSON con actualizaciones y CSV con SKUs no encontrados en VTEX.",
         "category": "tools",
         "script": "44_stock_diff_filter/stock_diff_filter.py",
         "requires_vtex": False,

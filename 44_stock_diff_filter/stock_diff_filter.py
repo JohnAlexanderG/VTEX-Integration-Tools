@@ -19,6 +19,7 @@ Example:
     Generates:
     - output_to_update.csv: Records needing VTEX updates
     - output_to_update.ndjson: VTEX-ready records for inventory upload
+    - output_not_in_vtex.csv: ERP records whose SKU is not present in VTEX
     - output_REPORT.md: Detailed statistics and analysis
 """
 
@@ -421,6 +422,7 @@ def filter_complete_inventory(
 
     output_file = f"{output_prefix}_to_update.csv"
     ndjson_file = f"{output_prefix}_to_update.ndjson"
+    not_in_vtex_file = f"{output_prefix}_not_in_vtex.csv"
     report_file = f"{output_prefix}_REPORT.md"
 
     # Counters
@@ -451,11 +453,15 @@ def filter_complete_inventory(
         if dry_run:
             logger.info("[DRY-RUN] Analizando sin escribir archivos de salida...")
             csv_writer = None
+            not_in_vtex_writer = None
             nf = None
         else:
             f_csv = open(output_file, 'w', encoding='utf-8', newline='')
             csv_writer = csv.DictWriter(f_csv, fieldnames=fieldnames)
             csv_writer.writeheader()
+            f_not_in_vtex = open(not_in_vtex_file, 'w', encoding='utf-8', newline='')
+            not_in_vtex_writer = csv.DictWriter(f_not_in_vtex, fieldnames=fieldnames)
+            not_in_vtex_writer.writeheader()
             nf = open(ndjson_file, 'w', encoding='utf-8')
 
         try:
@@ -477,6 +483,9 @@ def filter_complete_inventory(
 
                 if sku not in vtex_skus:
                     not_in_vtex += 1
+                    if not_in_vtex_writer is not None:
+                        clean_row = {k: v for k, v in row.items() if k is not None}
+                        not_in_vtex_writer.writerow(clean_row)
                     continue
 
                 matched_vtex += 1
@@ -528,6 +537,7 @@ def filter_complete_inventory(
         finally:
             if not dry_run:
                 f_csv.close()
+                f_not_in_vtex.close()
                 nf.close()
 
     logger.info(f"  ... {total_complete:,} registros procesados (completo)")
@@ -539,6 +549,7 @@ def filter_complete_inventory(
 
     if not dry_run:
         logger.info(f"\n{update_count:,} registros escritos en: {output_file}")
+        logger.info(f"{not_in_vtex:,} registros sin SKU VTEX en: {not_in_vtex_file}")
         logger.info(f"{ndjson_count:,} registros NDJSON en: {ndjson_file}")
         if no_skuid_count > 0:
             logger.info(f"  {no_skuid_count:,} registros omitidos del NDJSON (sin _SkuId)")
@@ -559,8 +570,8 @@ def filter_complete_inventory(
     stats = compute_stats(vtex_skus, processed_lookup, vtex_inventory_lookup, counters, skus_in_output)
 
     if not dry_run:
-        generate_report(report_file, stats, output_file, ndjson_file)
-    print_statistics(stats, output_file, report_file, ndjson_file, dry_run=dry_run)
+        generate_report(report_file, stats, output_file, ndjson_file, not_in_vtex_file)
+    print_statistics(stats, output_file, report_file, ndjson_file, not_in_vtex_file, dry_run=dry_run)
 
     return stats
 
@@ -569,7 +580,8 @@ def generate_report(
     report_file: str,
     stats: Dict[str, Any],
     output_file: str,
-    ndjson_file: str
+    ndjson_file: str,
+    not_in_vtex_file: str
 ) -> None:
     """Generate detailed markdown report."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -587,7 +599,7 @@ def generate_report(
     mode_desc = "Inventario ERP comparado contra inventario VTEX actual"
     if has_processed:
         mode_desc += " y registros ya procesados"
-    mode_desc += ".\nSolo se exportan registros nuevos o con cantidades modificadas."
+    mode_desc += ".\nSe exportan registros nuevos/modificados y, por separado, registros cuyo SKU no existe en VTEX."
 
     # Build data sources table dynamically
     sources_rows = f"| SKUs en VTEX | {stats['total_vtex_skus']:,} |\n"
@@ -647,6 +659,7 @@ def generate_report(
 
 - **CSV:** `{output_file}` - {stats['to_update']:,} registros ({stats['unique_skus']:,} SKUs unicos)
 - **NDJSON:** `{ndjson_file}` - {stats['ndjson_count']:,} registros VTEX-ready ({stats['no_skuid_count']:,} omitidos sin _SkuId)
+- **CSV no encontrados:** `{not_in_vtex_file}` - {stats['not_in_vtex']:,} registros cuyo SKU no existe en VTEX
 
 ## Logica de Procesamiento
 
@@ -654,7 +667,7 @@ def generate_report(
 2. Cargar inventario VTEX actual (.xls/.xlsx/.csv) como lookup
 {"3. Cargar inventario ya procesado (.csv) como lookup extra de dedup" if has_processed else "3. (Sin archivo procesado - comparacion directa ERP vs VTEX)"}
 4. Para cada registro del inventario ERP completo:
-   - Si SKU no existe en VTEX -> omitir
+   - Si SKU no existe en VTEX -> exportar a CSV de no encontrados y omitir de actualizaciones
    - Si (SKU, ALMACEN, CANTIDAD) identico al inventario VTEX actual -> omitir
 {"   - Si (SKU, ALMACEN, CANTIDAD) identico al procesado -> omitir" if has_processed else ""}
    - Si es nuevo o cantidad diferente -> incluir en salida
@@ -673,6 +686,7 @@ def print_statistics(
     output_file: str,
     report_file: str,
     ndjson_file: str,
+    not_in_vtex_file: str,
     dry_run: bool = False
 ) -> None:
     """Print statistics to console."""
@@ -717,6 +731,7 @@ def print_statistics(
         logger.info(f"\nArchivos generados:")
         logger.info(f"  {output_file}")
         logger.info(f"  {ndjson_file}")
+        logger.info(f"  {not_in_vtex_file}")
         logger.info(f"  {report_file}")
     else:
         logger.info(f"\n[DRY-RUN] No se generaron archivos de salida")
@@ -741,6 +756,7 @@ Ejemplos:
 Archivos de Salida (usando prefijo "output"):
   - output_to_update.csv      Registros que necesitan actualizacion
   - output_to_update.ndjson    Registros VTEX-ready para upload
+  - output_not_in_vtex.csv     Registros ERP cuyo SKU no existe en VTEX
   - output_REPORT.md           Reporte de estadisticas
 
 Formatos soportados:
@@ -751,8 +767,9 @@ Logica:
   1. Cargar SKUs validos desde VTEX (columna _SKUReferenceCode o SKU reference code)
   2. Cargar inventario VTEX actual (columnas RefId, WarehouseId, TotalQuantity)
   3. (Opcional) Cargar inventario ya procesado como capa extra de dedup
-  4. Del inventario completo ERP, extraer solo registros donde:
-     - El SKU existe en VTEX
+  4. Del inventario completo ERP:
+     - Si el SKU no existe en VTEX, exportarlo a output_not_in_vtex.csv
+     - Para actualizaciones, extraer solo registros donde el SKU existe en VTEX
      - Y el (SKU, ALMACEN, CANTIDAD) NO es identico al inventario VTEX actual
      - Y (si --processed) NO es identico al ya procesado
         '''
