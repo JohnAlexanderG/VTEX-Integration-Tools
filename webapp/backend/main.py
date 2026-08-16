@@ -576,6 +576,8 @@ TOOLS: List[Dict[str, Any]] = [
         "inputs": [
             {"name": "input_file", "type": "file", "label": "Archivo con datos de precios", "required": True,
              "flag": "--input", "role": "input_file"},
+            {"name": "output_dir", "type": "text", "label": "Directorio de salida",
+             "default": "price_update_output", "flag": "--output-dir", "role": "output_dir"},
         ],
     },
     {
@@ -589,6 +591,10 @@ TOOLS: List[Dict[str, Any]] = [
         "inputs": [
             {"name": "input_file", "type": "file", "label": "Archivo con datos de inventario", "required": True,
              "flag": "--input", "role": "input_file"},
+            {"name": "failures", "type": "text", "label": "CSV de registros fallidos",
+             "default": "failures.csv", "flag": "--failures", "role": "output_file"},
+            {"name": "summary", "type": "text", "label": "Resumen (Markdown)",
+             "default": "summary.md", "flag": "--summary", "role": "output_file"},
         ],
     },
     {
