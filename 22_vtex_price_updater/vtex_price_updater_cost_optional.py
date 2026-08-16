@@ -510,6 +510,7 @@ def main():
     parser.add_argument("--retry-backoff-ms", type=int, default=750, help="Base backoff in ms (default: 750)")
     parser.add_argument("--dry-run", action="store_true", help="Print requests without calling the API")
     parser.add_argument("--infer-cost-from-base", action="store_true", help="If costPrice is missing, use basePrice as costPrice")
+    parser.add_argument("--output-dir", default=".", help="Directory to write generated reports (default: current dir)")
 
     args = parser.parse_args()
 
@@ -557,27 +558,29 @@ def main():
     ts_filename = ts.replace(":", "-").replace(".", "-")
 
     print(f"\n💾 Generando reportes detallados...")
-    
+
+    os.makedirs(args.output_dir, exist_ok=True)
+
     # Generar reporte de éxitos
     success_report = generate_success_report(results["successes"], total_time, ts)
-    success_filename = f"price-update-success-{ts_filename}.json"
+    success_filename = os.path.join(args.output_dir, f"price-update-success-{ts_filename}.json")
     with open(success_filename, "w", encoding="utf-8") as f:
         json.dump(success_report, f, ensure_ascii=False, indent=2)
     print(f"   ✅ Reporte de éxitos: {success_filename} ({len(results['successes'])} items)")
-    
+
     # Generar reportes de errores si hay fallos
     error_json_filename = None
     error_csv_filename = None
     if results["failures"]:
         # Reporte JSON detallado
         error_report_json = generate_error_report_json(results["failures"], ts)
-        error_json_filename = f"price-update-errors-{ts_filename}.json"
+        error_json_filename = os.path.join(args.output_dir, f"price-update-errors-{ts_filename}.json")
         with open(error_json_filename, "w", encoding="utf-8") as f:
             json.dump(error_report_json, f, ensure_ascii=False, indent=2)
         print(f"   ❌ Reporte de errores JSON: {error_json_filename} ({len(results['failures'])} items)")
-        
+
         # Reporte CSV para análisis
-        error_csv_filename = f"price-update-errors-{ts_filename}.csv"
+        error_csv_filename = os.path.join(args.output_dir, f"price-update-errors-{ts_filename}.csv")
         save_error_report_csv(results["failures"], error_csv_filename)
         print(f"   📊 Reporte de errores CSV: {error_csv_filename} ({len(results['failures'])} items)")
     else:

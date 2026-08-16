@@ -576,6 +576,20 @@ TOOLS: List[Dict[str, Any]] = [
         "inputs": [
             {"name": "input_file", "type": "file", "label": "Archivo con datos de precios", "required": True,
              "flag": "--input", "role": "input_file"},
+            {"name": "concurrency", "type": "number", "label": "Concurrencia (workers paralelos)",
+             "default": 3, "flag": "--concurrency"},
+            {"name": "batch_size", "type": "number", "label": "Tamaño de lote",
+             "default": 50, "flag": "--batch-size"},
+            {"name": "max_retries", "type": "number", "label": "Máx. reintentos",
+             "default": 3, "flag": "--max-retries"},
+            {"name": "retry_backoff_ms", "type": "number", "label": "Backoff inicial (ms)",
+             "default": 750, "flag": "--retry-backoff-ms"},
+            {"name": "dry_run", "type": "checkbox", "label": "Dry-run (simular sin llamar a la API)",
+             "flag": "--dry-run"},
+            {"name": "infer_cost_from_base", "type": "checkbox",
+             "label": "Inferir costPrice desde basePrice si falta", "flag": "--infer-cost-from-base"},
+            {"name": "output_dir", "type": "text", "label": "Directorio de salida",
+             "default": "price_update_output", "flag": "--output-dir", "role": "output_dir"},
         ],
     },
     {
@@ -589,6 +603,10 @@ TOOLS: List[Dict[str, Any]] = [
         "inputs": [
             {"name": "input_file", "type": "file", "label": "Archivo con datos de inventario", "required": True,
              "flag": "--input", "role": "input_file"},
+            {"name": "failures", "type": "text", "label": "CSV de registros fallidos",
+             "default": "failures.csv", "flag": "--failures", "role": "output_file"},
+            {"name": "summary", "type": "text", "label": "Resumen (Markdown)",
+             "default": "summary.md", "flag": "--summary", "role": "output_file"},
         ],
     },
     {
