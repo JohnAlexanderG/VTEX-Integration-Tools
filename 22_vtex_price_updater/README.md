@@ -67,10 +67,13 @@ python3 vtex_price_updater_cost_optional.py --input precios.json --dry-run
 | Argumento | Tipo | Descripción | Valor por defecto |
 |-----------|------|-------------|-------------------|
 | `--input` | str | (requerido) Archivo JSON con datos de precios | (requerido) |
-| `--concurrency` | int | Número de workers concurrentes | `1` |
-| `--batch-size` | int | Tamaño del lote para actualización | `1` |
+| `--concurrency` | int | Número de workers concurrentes | `3` |
+| `--batch-size` | int | Tamaño del lote para actualización | `50` |
+| `--max-retries` | int | Reintentos máximos ante 429/5xx | `3` |
+| `--retry-backoff-ms` | int | Backoff inicial entre reintentos (ms) | `750` |
 | `--infer-cost-from-base` | flag | Forzar costPrice = basePrice si falta | (desactivado) |
 | `--dry-run` | flag | Simular sin realizar cambios reales | (desactivado) |
+| `--output-dir` | str | Directorio donde escribir los reportes generados | `.` (directorio actual) |
 
 ## Formato de entrada
 
