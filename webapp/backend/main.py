@@ -575,7 +575,7 @@ TOOLS: List[Dict[str, Any]] = [
         "requires_vtex": True,
         "inputs": [
             {"name": "input_file", "type": "file", "label": "Archivo con datos de precios", "required": True,
-             "position": 0, "role": "input_file"},
+             "flag": "--input", "role": "input_file"},
         ],
     },
     {
@@ -588,7 +588,7 @@ TOOLS: List[Dict[str, Any]] = [
         "requires_vtex": True,
         "inputs": [
             {"name": "input_file", "type": "file", "label": "Archivo con datos de inventario", "required": True,
-             "position": 0, "role": "input_file"},
+             "flag": "--input", "role": "input_file"},
         ],
     },
     {
