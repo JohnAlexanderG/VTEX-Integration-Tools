@@ -12,6 +12,9 @@ interface Props {
   vtexConfigured: boolean
   initialValues?: Record<string, string | boolean | File | null>
   onComplete?: (jobId: string, outputFiles: string[]) => void
+  /** Job todavía activo en el servidor para esta tool (reenganche tras reload/colapso). */
+  resumeJobId?: string | null
+  onJobStart?: (jobId: string) => void
 }
 
 type FieldValue = string | boolean | File | null
@@ -115,7 +118,7 @@ function BatchInventoryProgress({ progress, isRunning }: { progress: JobProgress
   )
 }
 
-export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onComplete }: Props) {
+export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onComplete, resumeJobId, onJobStart }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const [formValues, setFormValues] = useState<Record<string, FieldValue>>(() => {
     const defaults: Record<string, FieldValue> = {}
@@ -132,9 +135,9 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     return defaults
   })
 
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(resumeJobId ?? null)
   const [error, setError] = useState<string | null>(null)
-  const [showLogs, setShowLogs] = useState(false)
+  const [showLogs, setShowLogs] = useState(() => Boolean(resumeJobId))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastRunWasDryRun, setLastRunWasDryRun] = useState(false)
   const { logs, status, progress, outputFiles, exitCode, connectionState } = useJob(jobId)
@@ -197,6 +200,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     try {
       const result = await runTool(tool.id, params, files)
       setJobId(result.job_id)
+      onJobStart?.(result.job_id)
       setShowLogs(true)
       // After the log panel expands, keep the card header in view
       requestAnimationFrame(() => {
