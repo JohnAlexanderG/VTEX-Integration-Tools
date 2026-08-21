@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
 import type { Tool } from '../types'
-import { fetchTools, fetchConfig } from '../api/client'
+import { fetchTools, fetchConfig, fetchJobs } from '../api/client'
 import ToolCard from '../components/ToolCard'
 import { useAuth } from '../context/AuthContext'
 
@@ -11,6 +11,7 @@ export default function Tools() {
   const [vtexConfigured, setVtexConfigured] = useState(false)
   const [search, setSearch] = useState('')
   const [activeToolId, setActiveToolId] = useState<string | null>(null)
+  const [activeJobsByTool, setActiveJobsByTool] = useState<Record<string, string>>({})
 
   useEffect(() => {
     fetchTools().then((all) => {
@@ -30,6 +31,20 @@ export default function Tools() {
     } else {
       setVtexConfigured(false)
     }
+
+    // Reenganchar jobs que sigan corriendo en el servidor (el usuario pudo
+    // recargar la página o colapsar la tarjeta sin que el job terminara).
+    fetchJobs()
+      .then((jobs) => {
+        const active = jobs.filter((j) => j.status === 'running' || j.status === 'pending')
+        const byTool: Record<string, string> = {}
+        for (const job of active) {
+          if (!byTool[job.tool_id]) byTool[job.tool_id] = job.id
+        }
+        setActiveJobsByTool(byTool)
+        setActiveToolId((prev) => prev ?? Object.keys(byTool)[0] ?? null)
+      })
+      .catch(() => {})
   }, [isAdmin])
 
   const filtered = tools.filter(
@@ -95,6 +110,10 @@ export default function Tools() {
                   <ToolCard
                     tool={tool}
                     vtexConfigured={vtexConfigured}
+                    resumeJobId={activeJobsByTool[tool.id]}
+                    onJobStart={(jobId) =>
+                      setActiveJobsByTool((prev) => ({ ...prev, [tool.id]: jobId }))
+                    }
                   />
                 </div>
               )}
