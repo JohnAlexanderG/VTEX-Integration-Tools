@@ -137,7 +137,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [showLogs, setShowLogs] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastRunWasDryRun, setLastRunWasDryRun] = useState(false)
-  const { logs, status, progress, outputFiles, exitCode, isConnected } = useJob(jobId)
+  const { logs, status, progress, outputFiles, exitCode, connectionState } = useJob(jobId)
 
   // ── FTP Deploy state (only relevant for step_44) ──────────────────────────
   const isStockDiff = tool.id === 'step_44'
@@ -238,7 +238,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const isBootstrapping =
     isSubmitting ||
     status === 'pending' ||
-    (jobId !== null && !isConnected && status === 'running')
+    (jobId !== null && status === 'running' && connectionState === 'connecting')
   const vtexWarning = tool.requires_vtex && !vtexConfigured
 
   // Notify parent when job completes with output files
@@ -361,10 +361,16 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
                 Iniciando ejecución…
               </span>
             )}
-            {status === 'running' && !isConnected && (
+            {status === 'running' && connectionState === 'reconnecting' && (
               <span className="text-xs text-blue-400 flex items-center gap-1.5">
                 <Loader size={12} className="animate-spin" />
                 Reconectando logs…
+              </span>
+            )}
+            {status === 'running' && connectionState === 'stale' && (
+              <span className="text-xs text-yellow-400 flex items-center gap-1.5">
+                <Loader size={12} className="animate-spin" />
+                Logs desconectados — el proceso sigue activo en el servidor
               </span>
             )}
             {status === 'completed' && (
