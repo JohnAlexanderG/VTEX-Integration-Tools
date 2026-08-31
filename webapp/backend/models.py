@@ -11,6 +11,7 @@ from sqlalchemy import (
     Enum as SAEnum,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -124,3 +125,27 @@ class TenantModulePermission(Base):
                         onupdate=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="permissions")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job  (persistencia de jobs ejecutados desde la webapp — sobrevive reinicios
+# del proceso backend, a diferencia del dict en memoria `jobs` de main.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id           = Column(String(36), primary_key=True)
+    tenant_id    = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"),
+                          nullable=True)
+    tool_id      = Column(String(100), nullable=False)
+    tool_name    = Column(String(200), nullable=False)
+    status       = Column(String(20), nullable=False, default="pending")
+    created_at   = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    finished_at  = Column(DateTime, nullable=True)
+    exit_code    = Column(Integer, nullable=True)
+    command      = Column(Text, nullable=True)
+    output_files = Column(JSON, nullable=True)
+    job_dir      = Column(Text, nullable=False)

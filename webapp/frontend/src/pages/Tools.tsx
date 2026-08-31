@@ -32,17 +32,26 @@ export default function Tools() {
       setVtexConfigured(false)
     }
 
-    // Reenganchar jobs que sigan corriendo en el servidor (el usuario pudo
-    // recargar la página o colapsar la tarjeta sin que el job terminara).
+    // Reenganchar jobs para cada tool: los que siguen corriendo en el servidor
+    // (el usuario pudo recargar la página o colapsar la tarjeta sin que el job
+    // terminara) y también los que ya terminaron mientras el usuario no miraba,
+    // para no perder el acceso a sus archivos de salida. `fetchJobs()` ya viene
+    // ordenado por fecha descendente, así que el primer job visto por tool_id
+    // es siempre el más reciente.
     fetchJobs()
       .then((jobs) => {
-        const active = jobs.filter((j) => j.status === 'running' || j.status === 'pending')
         const byTool: Record<string, string> = {}
-        for (const job of active) {
+        for (const job of jobs) {
           if (!byTool[job.tool_id]) byTool[job.tool_id] = job.id
         }
         setActiveJobsByTool(byTool)
-        setActiveToolId((prev) => prev ?? Object.keys(byTool)[0] ?? null)
+
+        // Solo autoabrir el acordeón si hay una ejecución realmente activa —
+        // no forzar la apertura de tools cuya última corrida ya terminó.
+        const runningJob = jobs.find((j) => j.status === 'running' || j.status === 'pending')
+        if (runningJob) {
+          setActiveToolId((prev) => prev ?? runningJob.tool_id)
+        }
       })
       .catch(() => {})
   }, [isAdmin])

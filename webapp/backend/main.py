@@ -31,6 +31,7 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from database import AsyncSessionLocal, Base, engine, get_db                 # noqa: E402
 from models import (                                                           # noqa: E402
+    Job,
     Tenant,
     TenantConfig,
     TenantModulePermission,
@@ -1393,6 +1394,73 @@ def _build_command(tool: Dict, params: Dict[str, str], file_paths: Dict[str, str
     return cmd
 
 
+async def _persist_job(job: Dict[str, Any]) -> None:
+    """
+    Write-through de un job en memoria hacia la tabla `jobs` en Postgres.
+
+    Se llama en cada transición de estado (creación, running, terminal) para que
+    el job siga siendo consultable/descargable después de un reinicio del proceso
+    backend, aunque `jobs`/`log_buffer` (solo en memoria) se hayan vaciado.
+    Defensivo a propósito: un fallo de persistencia no debe interrumpir la
+    ejecución del job ni el broadcast de logs en curso.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            existing = await session.get(Job, job["id"])
+            finished_at = job.get("finished_at")
+            if isinstance(finished_at, str):
+                finished_at = datetime.fromisoformat(finished_at)
+            created_at = job.get("created_at")
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+
+            if existing is None:
+                existing = Job(id=job["id"])
+                session.add(existing)
+
+            existing.tenant_id = job.get("tenant_id")
+            existing.user_id = job.get("user_id")
+            existing.tool_id = job.get("tool_id")
+            existing.tool_name = job.get("tool_name")
+            existing.status = job.get("status")
+            if created_at is not None:
+                existing.created_at = created_at
+            existing.finished_at = finished_at
+            existing.exit_code = job.get("exit_code")
+            existing.command = json.dumps(job.get("command")) if job.get("command") else None
+            existing.output_files = job.get("output_files") or []
+            existing.job_dir = job.get("job_dir")
+
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[jobs] No se pudo persistir el job {job.get('id')} en DB: {exc}")
+
+
+async def _get_job_from_db(job_id: str, db: AsyncSession) -> Optional[Dict[str, Any]]:
+    """
+    Fallback de lectura para cuando `jobs.get(job_id)` es None — típicamente
+    porque el proceso backend se reinició (deploy) y perdió el estado en memoria,
+    pero el job y sus archivos de salida siguen intactos en disco/DB.
+    """
+    row = await db.get(Job, job_id)
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "tenant_id": row.tenant_id,
+        "user_id": row.user_id,
+        "tool_id": row.tool_id,
+        "tool_name": row.tool_name,
+        "status": row.status,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "exit_code": row.exit_code,
+        "command": json.loads(row.command) if row.command else None,
+        "output_files": row.output_files or [],
+        "job_dir": row.job_dir,
+    }
+
+
 def _collect_output_files(job_dir: Path) -> List[str]:
     """Return generated files as relative POSIX paths, excluding uploaded inputs."""
     output_files = []
@@ -1417,6 +1485,7 @@ async def _run_job(
     job = jobs[job_id]
     job["status"] = "running"
     job["command"] = cmd
+    await _persist_job(job)
 
     await _broadcast(job_id, {"type": "status", "status": "running"})
     await _broadcast(job_id, {"type": "log", "stream": "system",
@@ -1466,6 +1535,7 @@ async def _run_job(
     job["status"] = "completed" if exit_code == 0 else "failed"
     job["finished_at"] = datetime.utcnow().isoformat()
     job["output_files"] = output_files
+    await _persist_job(job)
 
     await _broadcast(job_id, {"type": "outputs", "files": output_files})
     await _broadcast(job_id, {
@@ -2095,6 +2165,7 @@ async def run_tool(
         "job_dir":     str(job_dir),
     }
     log_buffer[job_id] = []
+    await _persist_job(jobs[job_id])
 
     # Run in background con las credenciales del tenant
     asyncio.create_task(_run_job(job_id, tool, cmd, job_dir, tenant_env))
@@ -2103,19 +2174,47 @@ async def run_tool(
 
 
 @app.get("/api/jobs")
-def list_jobs(current_user: User = Depends(get_current_user)):
-    """Lista jobs. Superadmin ve todos; los demás solo los de su tenant."""
-    all_jobs = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
-    if current_user.role == UserRole.superadmin:
-        visible = all_jobs
-    else:
-        visible = [j for j in all_jobs if j.get("tenant_id") == current_user.tenant_id]
-    return {"jobs": visible[:50]}
+async def list_jobs(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista jobs desde DB (fuente de verdad, sobrevive reinicios del backend).
+    Superadmin ve todos; los demás solo los de su tenant."""
+    query = select(Job).order_by(Job.created_at.desc()).limit(50)
+    if current_user.role != UserRole.superadmin:
+        query = query.where(Job.tenant_id == current_user.tenant_id)
+    result = await db.execute(query)
+    rows = result.scalars().all()
+    visible = [
+        {
+            "id": row.id,
+            "tenant_id": row.tenant_id,
+            "user_id": row.user_id,
+            "tool_id": row.tool_id,
+            "tool_name": row.tool_name,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+            "exit_code": row.exit_code,
+            "output_files": row.output_files or [],
+            "job_dir": row.job_dir,
+        }
+        for row in rows
+    ]
+    return {"jobs": visible}
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str, current_user: User = Depends(get_current_user)):
+async def get_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     job = jobs.get(job_id)
+    if not job:
+        # El proceso backend pudo haberse reiniciado (deploy) desde que el job
+        # terminó; el registro sigue vivo en DB aunque no esté en memoria.
+        job = await _get_job_from_db(job_id, db)
     if not job:
         return JSONResponse(status_code=404, content={"error": "Job not found"})
     # Verificar que el job pertenece al tenant del usuario
@@ -2125,8 +2224,14 @@ def get_job(job_id: str, current_user: User = Depends(get_current_user)):
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str, current_user: User = Depends(get_current_user)):
+async def delete_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     job = jobs.get(job_id)
+    if not job:
+        job = await _get_job_from_db(job_id, db)
     if not job:
         return {"ok": True}
     if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
@@ -2136,16 +2241,23 @@ def delete_job(job_id: str, current_user: User = Depends(get_current_user)):
     if job_dir.exists():
         shutil.rmtree(job_dir, ignore_errors=True)
     log_buffer.pop(job_id, None)
+    row = await db.get(Job, job_id)
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
     return {"ok": True}
 
 
 @app.get("/api/jobs/{job_id}/files/{filename:path}")
-def download_file(
+async def download_file(
     job_id: str,
     filename: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     job = jobs.get(job_id)
+    if not job:
+        job = await _get_job_from_db(job_id, db)
     if not job:
         return JSONResponse(status_code=404, content={"error": "Job not found"})
     if current_user.role != UserRole.superadmin and job.get("tenant_id") != current_user.tenant_id:
@@ -2365,7 +2477,12 @@ async def ftp_deploy(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws/{job_id}")
-async def websocket_endpoint(websocket: WebSocket, job_id: str, token: str = ""):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    job_id: str,
+    token: str = "",
+    db: AsyncSession = Depends(get_db),
+):
     """
     WebSocket para streaming de logs.
     El token JWT se pasa como query param: /ws/{job_id}?token=xxx
@@ -2382,31 +2499,50 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str, token: str = "")
         await websocket.close(code=4001)
         return
 
-    # Verificar que el job pertenece al tenant
+    # El job pudo haber terminado (o el proceso backend reiniciarse) antes de
+    # que este cliente se conectara — cae a DB si no está en memoria.
     job = jobs.get(job_id)
-    if job and role_str != UserRole.superadmin.value:
-        if job.get("tenant_id") != tid:
-            await websocket.close(code=4003)
-            return
+    if not job:
+        job = await _get_job_from_db(job_id, db)
+
+    if not job:
+        # No existe en memoria ni en DB: no hay nada que transmitir.
+        await websocket.close(code=4004)
+        return
+
+    if role_str != UserRole.superadmin.value and job.get("tenant_id") != tid:
+        await websocket.close(code=4003)
+        return
 
     await websocket.accept()
     ws_clients.setdefault(job_id, []).append(websocket)
 
-    # Replay buffered messages for this job
+    # Replay buffered messages for this job (vacío si el job vino del fallback a DB)
     for msg in log_buffer.get(job_id, []):
         try:
             await websocket.send_json(msg)
         except Exception:
             break
 
-    # If job already finished, send final status
-    job = jobs.get(job_id)
-    if job and job["status"] in ("completed", "failed"):
+    # Re-leer el estado más fresco disponible (puede haber cambiado desde el fetch inicial)
+    job = jobs.get(job_id) or job
+
+    if job["status"] in ("completed", "failed"):
+        # Job terminal: no habrá más eventos que transmitir. Mandamos `outputs`
+        # explícitamente porque el buffer en memoria puede estar vacío (job
+        # reconstruido desde DB tras un reinicio del backend), y el frontend
+        # limpia `outputFiles` en cada conexión nueva confiando en este mensaje.
         try:
+            await websocket.send_json({"type": "outputs", "files": job.get("output_files") or []})
             await websocket.send_json({"type": "status", "status": job["status"],
                                         "exit_code": job.get("exit_code")})
         except Exception:
             pass
+        clients = ws_clients.get(job_id, [])
+        if websocket in clients:
+            clients.remove(websocket)
+        await websocket.close(code=1000)
+        return
 
     try:
         while True:
