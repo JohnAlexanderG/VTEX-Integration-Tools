@@ -57,7 +57,11 @@ export async function fetchJob(jobId: string): Promise<Job> {
   return res.json()
 }
 
-export async function reconcileJobs(): Promise<{ recovered: number; failed: number }> {
+export async function reconcileJobs(): Promise<{
+  recovered: number
+  failed: number
+  errors?: Array<{ path: string; error: string }>
+}> {
   const res = await apiFetch(`${BASE}/jobs/reconcile`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'No se pudo recuperar archivos' }))

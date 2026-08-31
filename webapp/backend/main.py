@@ -1555,7 +1555,7 @@ def _iter_orphan_job_dirs(existing_ids: set[str]) -> List[Tuple[int, Path, bool]
     return candidates
 
 
-async def _reconcile_orphaned_jobs() -> Dict[str, int]:
+async def _reconcile_orphaned_jobs(fallback_tenant_id: Optional[int] = None) -> Dict[str, Any]:
     """
     Recupera directorios de job en `/tmp/vtex_webapp/{tenant_id}/{job_id}/` y en
     el layout antiguo `/tmp/vtex_webapp/{job_id}/` que no tienen fila en la tabla
@@ -1574,18 +1574,27 @@ async def _reconcile_orphaned_jobs() -> Dict[str, int]:
     """
     recovered = 0
     failed = 0
+    errors: List[Dict[str, str]] = []
     try:
         async with AsyncSessionLocal() as session:
             existing_ids = set((await session.execute(select(Job.id))).scalars().all())
+            tenant_ids = set((await session.execute(select(Tenant.id))).scalars().all())
+            default_tenant_id = fallback_tenant_id if fallback_tenant_id in tenant_ids else None
+            if default_tenant_id is None and tenant_ids:
+                default_tenant_id = min(tenant_ids)
 
             for tenant_id, job_dir, is_legacy in _iter_orphan_job_dirs(existing_ids):
                 try:
+                    resolved_tenant_id = tenant_id if tenant_id in tenant_ids else default_tenant_id
+                    if resolved_tenant_id is None:
+                        raise ValueError("No hay tenants registrados para asociar el job recuperado")
+
                     output_files = _collect_output_files(job_dir)
                     has_output = bool(output_files)
                     mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
                     session.add(Job(
                         id=job_dir.name,
-                        tenant_id=tenant_id,
+                        tenant_id=resolved_tenant_id,
                         user_id=None,
                         tool_id="unknown",
                         tool_name="Job recuperado legado" if is_legacy else (
@@ -1605,13 +1614,18 @@ async def _reconcile_orphaned_jobs() -> Dict[str, int]:
                 except Exception as exc:  # noqa: BLE001
                     await session.rollback()
                     failed += 1
-                    print(f"[jobs] No se pudo recuperar el job huérfano {job_dir}: {exc}")
+                    message = str(exc)
+                    if len(errors) < 5:
+                        errors.append({"path": str(job_dir), "error": message})
+                    print(f"[jobs] No se pudo recuperar el job huérfano {job_dir}: {message}")
 
             if recovered:
                 print(f"[jobs] Recuperados {recovered} job(s) huérfanos desde disco.")
     except Exception as exc:  # noqa: BLE001
-        print(f"[jobs] Reconciliación de jobs huérfanos falló: {exc}")
-    return {"recovered": recovered, "failed": failed}
+        message = str(exc)
+        errors.append({"path": str(JOBS_BASE), "error": message})
+        print(f"[jobs] Reconciliación de jobs huérfanos falló: {message}")
+    return {"recovered": recovered, "failed": failed, "errors": errors}
 
 
 async def _run_job(
@@ -2346,11 +2360,11 @@ async def list_jobs(
 
 @app.post("/api/jobs/reconcile")
 async def reconcile_jobs(
-    _: User = Depends(require_superadmin),
+    current_user: User = Depends(require_superadmin),
 ):
     """Re-ejecuta la recuperación de jobs huérfanos bajo demanda, sin esperar a un
     deploy que reinicie el backend (que es lo único que la dispara normalmente)."""
-    return await _reconcile_orphaned_jobs()
+    return await _reconcile_orphaned_jobs(fallback_tenant_id=current_user.tenant_id)
 
 
 @app.get("/api/jobs/{job_id}")

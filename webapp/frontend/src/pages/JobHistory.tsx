@@ -71,7 +71,12 @@ export default function JobHistory() {
       const base = result.recovered === 1
         ? 'Se recuperó 1 job desde archivos existentes.'
         : `Se recuperaron ${result.recovered} jobs desde archivos existentes.`
-      setNotice(result.failed > 0 ? `${base} ${result.failed} no se pudieron recuperar.` : base)
+      const firstError = result.errors?.[0]?.error
+      setNotice(result.failed > 0 && firstError
+        ? `${base} ${result.failed} no se pudieron recuperar. Primer error: ${firstError}`
+        : result.failed > 0
+          ? `${base} ${result.failed} no se pudieron recuperar.`
+          : base)
       load()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'No se pudieron recuperar archivos existentes')
