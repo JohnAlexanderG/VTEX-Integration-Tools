@@ -37,7 +37,7 @@ python3 vtex_masterdata_search_exporter.py --data-entity-name <dataEntityName> [
 | `-e`, `--data-entity-name` | Requerido | Nombre de la entidad de Master Data a consultar (ej. `CL`) |
 | `-o`, `--output` | Opcional | Archivo CSV de salida (default: `{dataEntityName}_search_{timestamp}.csv`) |
 | `-r`, `--report` | Opcional | Archivo de reporte Markdown de salida (default: `{dataEntityName}_search_report_{timestamp}.md`) |
-| `--fields` | Opcional | Lista de campos separada por comas para `_fields` (default: set predefinido de campos de cliente, ver abajo) |
+| `--fields` | Opcional | Lista de campos separada por comas para `_fields`; usar `_all` para traer todos los campos y detectar automaticamente las columnas del CSV (default: set predefinido de campos de cliente, ver abajo) |
 | `--page-size` | Opcional | Registros por pagina, `_size` (default: `1000`, el maximo que acepta VTEX) |
 | `--schema` | Opcional | Nombre del schema (`_schema`) de la entidad. Algunas cuentas de VTEX lo exigen en `/scroll` al usar `_fields` (ver Notas/Caveats) |
 | `--delay` | Opcional | Pausa en segundos entre paginas (default: `0.5`) |
@@ -55,6 +55,9 @@ python3 vtex_masterdata_search_exporter.py -e CL -o clientes.csv --page-size 100
 
 # Solo algunos campos
 python3 vtex_masterdata_search_exporter.py -e CL --fields id,email,firstName,lastName
+
+# Todos los campos disponibles en la respuesta de VTEX
+python3 vtex_masterdata_search_exporter.py -e CL --fields _all --schema clientes-v2
 
 # Con mas delay entre paginas (entidades grandes / rate limit ajustado)
 python3 vtex_masterdata_search_exporter.py -e CL --delay 1.0 --retries 5
@@ -85,6 +88,11 @@ createdBy, createdIn, updatedBy, updatedIn
 Una fila por registro de la entidad, con los campos solicitados como columnas (en el mismo orden
 de `--fields`/default). Si un registro no trae un campo, la celda queda vacia.
 
+Cuando se usa `--fields _all`, VTEX devuelve todos los campos permitidos por la consulta y el script
+detecta las columnas recorriendo los registros recibidos. Si algun campo aparece solo en registros
+posteriores, tambien se agrega como columna del CSV. Los valores anidados (`object`/`array`) se
+escriben como JSON dentro de la celda.
+
 ### {dataEntityName}_search_report_{timestamp}.md
 
 Reporte markdown con:
@@ -93,7 +101,7 @@ Reporte markdown con:
   pagina (`_size`), duracion total. `/scroll` no expone un total anticipado de registros (a
   diferencia de `/search`); el conteo final solo se conoce al terminar de iterar.
 - Configuracion usada (`--page-size`, `--delay`, `--timeout`, `--retries`, `--schema`, campos, ruta
-  del CSV).
+  del CSV). Si se usa `_all`, incluye tambien el conteo y listado de columnas detectadas.
 - Incidencias durante la paginacion, si las hubo (ej. no se recibio el header `X-VTEX-MD-TOKEN` y
   no fue posible continuar).
 

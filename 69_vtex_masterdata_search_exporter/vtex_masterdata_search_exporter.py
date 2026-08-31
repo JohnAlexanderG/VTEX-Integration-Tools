@@ -28,12 +28,14 @@ Ejemplos:
     python3 vtex_masterdata_search_exporter.py --data-entity-name CL
     python3 vtex_masterdata_search_exporter.py -e CL -o clientes.csv --page-size 1000 --delay 0.5
     python3 vtex_masterdata_search_exporter.py -e CL --fields id,email,firstName,lastName
+    python3 vtex_masterdata_search_exporter.py -e CL --fields _all --schema clientes-v2
     python3 vtex_masterdata_search_exporter.py -e CL --schema clientes-v2
 """
 from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 import time
 from dataclasses import dataclass, field
@@ -303,13 +305,45 @@ def write_csv(output_path: Path, records: List[Dict[str, Any]], fields: List[str
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, restval="", extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(records)
+        writer.writerows(normalize_csv_record(record, fields) for record in records)
+
+
+def is_all_fields_request(fields: List[str]) -> bool:
+    return len(fields) == 1 and fields[0].strip().lower() == "_all"
+
+
+def resolve_csv_fields(records: List[Dict[str, Any]], requested_fields: List[str]) -> List[str]:
+    if not is_all_fields_request(requested_fields):
+        return requested_fields
+
+    detected_fields: List[str] = []
+    seen = set()
+    for record in records:
+        for field_name in record.keys():
+            if field_name not in seen:
+                detected_fields.append(field_name)
+                seen.add(field_name)
+
+    return detected_fields or requested_fields
+
+
+def normalize_csv_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def normalize_csv_record(record: Dict[str, Any], fields: List[str]) -> Dict[str, Any]:
+    return {field_name: normalize_csv_value(record.get(field_name, "")) for field_name in fields}
 
 
 def build_report(
     config: VtexConfig,
     stats: SearchStats,
     csv_path: Path,
+    csv_fields: List[str],
     schema: Optional[str],
     delay: float,
     timeout: int,
@@ -346,6 +380,9 @@ def build_report(
     lines.append(f"- `--retries`: {retries}")
     lines.append(f"- `--schema`: {schema if schema else 'N/A'}")
     lines.append(f"- Campos (`_fields`): {', '.join(stats.fields)}")
+    if is_all_fields_request(stats.fields):
+        lines.append(f"- Columnas CSV detectadas desde `_all`: {len(csv_fields)}")
+        lines.append(f"- Campos del CSV: {', '.join(csv_fields)}")
     lines.append(f"- Archivo CSV: `{csv_path}`")
     lines.append("")
 
@@ -398,11 +435,13 @@ def run(
         retries=retries,
     )
 
-    write_csv(output_csv, records, fields)
+    csv_fields = resolve_csv_fields(records, fields)
+    write_csv(output_csv, records, csv_fields)
     report_content = build_report(
         config=config,
         stats=stats,
         csv_path=output_csv,
+        csv_fields=csv_fields,
         schema=schema,
         delay=delay,
         timeout=timeout,
@@ -435,6 +474,7 @@ def parse_args() -> argparse.Namespace:
   python3 vtex_masterdata_search_exporter.py --data-entity-name CL
   python3 vtex_masterdata_search_exporter.py -e CL -o clientes.csv --page-size 1000
   python3 vtex_masterdata_search_exporter.py -e CL --fields id,email,firstName,lastName
+  python3 vtex_masterdata_search_exporter.py -e CL --fields _all --schema clientes-v2
   python3 vtex_masterdata_search_exporter.py -e CL --schema clientes-v2
 """,
     )
@@ -450,6 +490,7 @@ def parse_args() -> argparse.Namespace:
         "--fields",
         help=(
             "Lista de campos separada por comas para _fields. "
+            "Usa _all para traer todos los campos y detectar columnas del CSV automaticamente. "
             "Por defecto usa el set predefinido de campos de cliente."
         ),
     )
