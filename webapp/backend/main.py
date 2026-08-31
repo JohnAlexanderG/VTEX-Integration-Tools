@@ -1209,6 +1209,7 @@ async def _migrate_jobs_schema() -> None:
                 ADD COLUMN IF NOT EXISTS output_files JSON,
                 ADD COLUMN IF NOT EXISTS job_dir TEXT NOT NULL DEFAULT ''
         """))
+        await conn.execute(text("ALTER TABLE jobs ALTER COLUMN user_id DROP NOT NULL"))
 
     # tenant_id must be NOT NULL + FK per the Job model (models.py). An install
     # where `jobs` was created before that constraint existed would otherwise have
@@ -1555,7 +1556,10 @@ def _iter_orphan_job_dirs(existing_ids: set[str]) -> List[Tuple[int, Path, bool]
     return candidates
 
 
-async def _reconcile_orphaned_jobs(fallback_tenant_id: Optional[int] = None) -> Dict[str, Any]:
+async def _reconcile_orphaned_jobs(
+    fallback_tenant_id: Optional[int] = None,
+    fallback_user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Recupera directorios de job en `/tmp/vtex_webapp/{tenant_id}/{job_id}/` y en
     el layout antiguo `/tmp/vtex_webapp/{job_id}/` que no tienen fila en la tabla
@@ -1595,7 +1599,7 @@ async def _reconcile_orphaned_jobs(fallback_tenant_id: Optional[int] = None) -> 
                     session.add(Job(
                         id=job_dir.name,
                         tenant_id=resolved_tenant_id,
-                        user_id=None,
+                        user_id=fallback_user_id,
                         tool_id="unknown",
                         tool_name="Job recuperado legado" if is_legacy else (
                             "Job recuperado" if has_output else "Job recuperado (sin salida)"
@@ -2364,7 +2368,11 @@ async def reconcile_jobs(
 ):
     """Re-ejecuta la recuperación de jobs huérfanos bajo demanda, sin esperar a un
     deploy que reinicie el backend (que es lo único que la dispara normalmente)."""
-    return await _reconcile_orphaned_jobs(fallback_tenant_id=current_user.tenant_id)
+    await _migrate_jobs_schema()
+    return await _reconcile_orphaned_jobs(
+        fallback_tenant_id=current_user.tenant_id,
+        fallback_user_id=current_user.id,
+    )
 
 
 @app.get("/api/jobs/{job_id}")
