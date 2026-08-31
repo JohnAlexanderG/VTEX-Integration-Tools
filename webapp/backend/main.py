@@ -1207,6 +1207,31 @@ async def _migrate_jobs_schema() -> None:
                 ADD COLUMN IF NOT EXISTS job_dir TEXT NOT NULL DEFAULT ''
         """))
 
+    # tenant_id must be NOT NULL + FK per the Job model (models.py). An install
+    # where `jobs` was created before that constraint existed would otherwise have
+    # a bare nullable column, which silently lets bad rows through instead of
+    # failing fast. Best-effort and isolated in its own try/except: it must never
+    # block startup or reconciliation if the server's data doesn't allow it yet.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE jobs SET tenant_id = 1 WHERE tenant_id IS NULL"))
+            await conn.execute(text("ALTER TABLE jobs ALTER COLUMN tenant_id SET NOT NULL"))
+            await conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE table_name = 'jobs' AND constraint_name = 'jobs_tenant_id_fkey'
+                    ) THEN
+                        ALTER TABLE jobs
+                            ADD CONSTRAINT jobs_tenant_id_fkey
+                            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            """))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[jobs] No se pudo alinear la constraint de tenant_id en jobs: {exc}")
+
 
 def _permission_catalog() -> Dict[str, Any]:
     return {
@@ -1503,20 +1528,28 @@ def _collect_output_files(job_dir: Path) -> List[str]:
     return sorted(output_files)
 
 
-async def _reconcile_orphaned_jobs() -> None:
+async def _reconcile_orphaned_jobs() -> Dict[str, int]:
     """
     Recupera directorios de job en `/tmp/vtex_webapp/{tenant_id}/{job_id}/` que no
     tienen fila en la tabla `jobs` — típicamente porque corrieron con una versión del
-    backend anterior a la persistencia en DB. Los archivos ya están en disco; esto solo
-    los hace visibles/descargables/borrables de nuevo desde la UI.
-    Corre una vez en cada arranque; es defensiva y no debe impedir que el backend
-    levante si algo falla.
+    backend anterior a la persistencia en DB, o porque un reinicio del backend
+    (deploy) mató el proceso antes de que terminara y nunca llegó a persistirse.
+    Los archivos ya están en disco; esto solo los hace visibles/descargables/
+    borrables de nuevo desde la UI. Una carpeta sin archivos de salida generados
+    (solo el `_input_*` subido) se recupera igual, marcada como `failed`, para que
+    al menos sea visible y se pueda borrar desde la UI en vez de solo por SSH.
+
+    Corre una vez en cada arranque (y bajo demanda vía POST /api/jobs/reconcile).
+    Cada carpeta se persiste en su propia transacción para que una fila
+    problemática no descarte las demás recuperadas en la misma corrida; es
+    defensiva y no debe impedir que el backend levante si algo falla.
     """
+    recovered = 0
+    failed = 0
     try:
         async with AsyncSessionLocal() as session:
             existing_ids = set((await session.execute(select(Job.id))).scalars().all())
 
-            recovered = 0
             for tenant_dir in JOBS_BASE.iterdir():
                 if not tenant_dir.is_dir() or not tenant_dir.name.isdigit():
                     continue
@@ -1527,16 +1560,15 @@ async def _reconcile_orphaned_jobs() -> None:
                         continue
                     try:
                         output_files = _collect_output_files(job_dir)
-                        if not output_files:
-                            continue
+                        has_output = bool(output_files)
                         mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
                         session.add(Job(
                             id=job_dir.name,
                             tenant_id=tenant_id,
                             user_id=None,
                             tool_id="unknown",
-                            tool_name="Job recuperado",
-                            status="completed",
+                            tool_name="Job recuperado" if has_output else "Job recuperado (sin salida)",
+                            status="completed" if has_output else "failed",
                             created_at=mtime,
                             finished_at=mtime,
                             exit_code=None,
@@ -1544,15 +1576,18 @@ async def _reconcile_orphaned_jobs() -> None:
                             output_files=output_files,
                             job_dir=str(job_dir),
                         ))
+                        await session.commit()
                         recovered += 1
                     except Exception as exc:  # noqa: BLE001
+                        await session.rollback()
+                        failed += 1
                         print(f"[jobs] No se pudo recuperar el job huérfano {job_dir}: {exc}")
 
             if recovered:
-                await session.commit()
                 print(f"[jobs] Recuperados {recovered} job(s) huérfanos desde disco.")
     except Exception as exc:  # noqa: BLE001
         print(f"[jobs] Reconciliación de jobs huérfanos falló: {exc}")
+    return {"recovered": recovered, "failed": failed}
 
 
 async def _run_job(
@@ -2283,6 +2318,15 @@ async def list_jobs(
         for row in rows
     ]
     return {"jobs": visible}
+
+
+@app.post("/api/jobs/reconcile")
+async def reconcile_jobs(
+    _: User = Depends(require_superadmin),
+):
+    """Re-ejecuta la recuperación de jobs huérfanos bajo demanda, sin esperar a un
+    deploy que reinicie el backend (que es lo único que la dispara normalmente)."""
+    return await _reconcile_orphaned_jobs()
 
 
 @app.get("/api/jobs/{job_id}")
