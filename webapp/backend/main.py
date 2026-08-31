@@ -102,6 +102,7 @@ async def _startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _migrate_user_schema()
+    await _migrate_jobs_schema()
     await _migrate_legacy_pipeline_permissions()
     await _reconcile_orphaned_jobs()
 
@@ -1177,6 +1178,33 @@ async def _migrate_user_schema() -> None:
                 ADD COLUMN IF NOT EXISTS role user_role NOT NULL DEFAULT 'operator',
                 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+        """))
+
+
+async def _migrate_jobs_schema() -> None:
+    """
+    Keep older PostgreSQL installs compatible with the current Job model.
+    `Base.metadata.create_all()` only creates tables that don't exist yet — it never
+    alters an existing one, so an install where `jobs` was created with an earlier
+    (incomplete) version of the model would otherwise stay broken forever.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE jobs
+                ADD COLUMN IF NOT EXISTS tenant_id INTEGER,
+                ADD COLUMN IF NOT EXISTS user_id INTEGER,
+                ADD COLUMN IF NOT EXISTS tool_id VARCHAR(100) NOT NULL DEFAULT 'unknown',
+                ADD COLUMN IF NOT EXISTS tool_name VARCHAR(200) NOT NULL DEFAULT 'unknown',
+                ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP WITHOUT TIME ZONE,
+                ADD COLUMN IF NOT EXISTS exit_code INTEGER,
+                ADD COLUMN IF NOT EXISTS command TEXT,
+                ADD COLUMN IF NOT EXISTS output_files JSON,
+                ADD COLUMN IF NOT EXISTS job_dir TEXT NOT NULL DEFAULT ''
         """))
 
 
