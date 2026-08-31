@@ -48,13 +48,14 @@ export interface JobProgress {
 
 export interface Job {
   id: string
+  tenant_id: number
   tool_id: string
   tool_name: string
   status: JobStatus
   created_at: string
   finished_at: string | null
   exit_code: number | null
-  command: string[]
+  command?: string[]
   output_files: string[]
   job_dir: string
 }

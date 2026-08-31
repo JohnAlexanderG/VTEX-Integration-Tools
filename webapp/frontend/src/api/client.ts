@@ -58,7 +58,11 @@ export async function fetchJob(jobId: string): Promise<Job> {
 }
 
 export async function deleteJob(jobId: string): Promise<void> {
-  await apiFetch(`${BASE}/jobs/${jobId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${BASE}/jobs/${jobId}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'No se pudo eliminar el job' }))
+    throw new Error(err.error || 'No se pudo eliminar el job')
+  }
 }
 
 export async function runTool(

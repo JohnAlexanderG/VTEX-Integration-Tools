@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Wrench, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
+import { Wrench, History, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
 import { fetchConfig } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
@@ -10,6 +10,7 @@ export default function Layout() {
   const { user, logout, isAdmin, isSuperAdmin, hasSectionAccess } = useAuth()
   const navigate                      = useNavigate()
   const hasToolsAccess = hasSectionAccess('tools')
+  const hasHistoryAccess = hasSectionAccess('history')
   const hasConfigAccess = hasSectionAccess('config')
   const hasUsersAccess = hasSectionAccess('users')
 
@@ -84,6 +85,21 @@ export default function Layout() {
             >
               <Wrench size={16} />
               Herramientas
+            </NavLink>
+          )}
+
+          {hasHistoryAccess && (
+            <NavLink
+              to="/jobs"
+              onClick={closeSidebar}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                }`
+              }
+            >
+              <History size={16} />
+              Historial
             </NavLink>
           )}
 

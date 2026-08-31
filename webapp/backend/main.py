@@ -103,6 +103,7 @@ async def _startup():
         await conn.run_sync(Base.metadata.create_all)
     await _migrate_user_schema()
     await _migrate_legacy_pipeline_permissions()
+    await _reconcile_orphaned_jobs()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory state
@@ -1474,6 +1475,58 @@ def _collect_output_files(job_dir: Path) -> List[str]:
     return sorted(output_files)
 
 
+async def _reconcile_orphaned_jobs() -> None:
+    """
+    Recupera directorios de job en `/tmp/vtex_webapp/{tenant_id}/{job_id}/` que no
+    tienen fila en la tabla `jobs` — típicamente porque corrieron con una versión del
+    backend anterior a la persistencia en DB. Los archivos ya están en disco; esto solo
+    los hace visibles/descargables/borrables de nuevo desde la UI.
+    Corre una vez en cada arranque; es defensiva y no debe impedir que el backend
+    levante si algo falla.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            existing_ids = set((await session.execute(select(Job.id))).scalars().all())
+
+            recovered = 0
+            for tenant_dir in JOBS_BASE.iterdir():
+                if not tenant_dir.is_dir() or not tenant_dir.name.isdigit():
+                    continue
+                tenant_id = int(tenant_dir.name)
+
+                for job_dir in tenant_dir.iterdir():
+                    if not job_dir.is_dir() or job_dir.name in existing_ids:
+                        continue
+                    try:
+                        output_files = _collect_output_files(job_dir)
+                        if not output_files:
+                            continue
+                        mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
+                        session.add(Job(
+                            id=job_dir.name,
+                            tenant_id=tenant_id,
+                            user_id=None,
+                            tool_id="unknown",
+                            tool_name="Job recuperado",
+                            status="completed",
+                            created_at=mtime,
+                            finished_at=mtime,
+                            exit_code=None,
+                            command=None,
+                            output_files=output_files,
+                            job_dir=str(job_dir),
+                        ))
+                        recovered += 1
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[jobs] No se pudo recuperar el job huérfano {job_dir}: {exc}")
+
+            if recovered:
+                await session.commit()
+                print(f"[jobs] Recuperados {recovered} job(s) huérfanos desde disco.")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[jobs] Reconciliación de jobs huérfanos falló: {exc}")
+
+
 async def _run_job(
     job_id: str,
     tool: Dict,
@@ -2226,7 +2279,7 @@ async def get_job(
 @app.delete("/api/jobs/{job_id}")
 async def delete_job(
     job_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     job = jobs.get(job_id)

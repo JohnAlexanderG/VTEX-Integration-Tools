@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, ChevronDown, ChevronUp, AlertTriangle, Download, Upload, CheckCircle, XCircle, Loader } from 'lucide-react'
-import type { Tool, JobProgress, JobStatus } from '../types'
+import type { Tool, JobProgress } from '../types'
 import { runTool, downloadJobFile, deployToFtp, fetchFtpStatus } from '../api/client'
 import type { DeployResult, FtpStatus } from '../api/client'
 import { useJob } from '../hooks/useJob'
 import FormField from './FormField'
 import LogPanel from './LogPanel'
+import StatusBadge from './StatusBadge'
 
 interface Props {
   tool: Tool
@@ -19,27 +20,6 @@ interface Props {
 
 type FieldValue = string | boolean | File | null
 type DeployStatus = null | 'checking' | 'ready' | 'deploying' | 'done' | 'error'
-
-function StatusBadge({ status }: { status: JobStatus | null }) {
-  if (!status) return null
-  const map: Record<string, string> = {
-    pending: 'bg-gray-700 text-gray-300',
-    running: 'bg-blue-900 text-blue-300 animate-pulse',
-    completed: 'bg-green-900 text-green-300',
-    failed: 'bg-red-900 text-red-300',
-  }
-  const labels: Record<string, string> = {
-    pending: 'Pendiente',
-    running: 'Ejecutando…',
-    completed: 'Completado',
-    failed: 'Error',
-  }
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${map[status]}`}>
-      {labels[status]}
-    </span>
-  )
-}
 
 function BatchInventoryProgress({ progress, isRunning }: { progress: JobProgress | null; isRunning: boolean }) {
   const rawPercent = typeof progress?.percent === 'number' ? progress.percent : null
