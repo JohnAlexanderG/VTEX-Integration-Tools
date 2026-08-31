@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, RefreshCw, Trash2 } from 'lucide-react'
 import type { Job } from '../types'
-import { fetchJobs, downloadJobFile, deleteJob } from '../api/client'
+import { fetchJobs, downloadJobFile, deleteJob, reconcileJobs } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/StatusBadge'
 
@@ -21,7 +21,9 @@ export default function JobHistory() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [reconciling, setReconciling] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -60,6 +62,24 @@ export default function JobHistory() {
     }
   }
 
+  const handleReconcile = async () => {
+    setReconciling(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await reconcileJobs()
+      const base = result.recovered === 1
+        ? 'Se recuperó 1 job desde archivos existentes.'
+        : `Se recuperaron ${result.recovered} jobs desde archivos existentes.`
+      setNotice(result.failed > 0 ? `${base} ${result.failed} no se pudieron recuperar.` : base)
+      load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'No se pudieron recuperar archivos existentes')
+    } finally {
+      setReconciling(false)
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="mb-5 md:mb-6 flex items-start justify-between gap-3">
@@ -69,19 +89,37 @@ export default function JobHistory() {
             Ejecuciones pasadas y sus archivos de salida.
           </p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors flex-shrink-0"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Actualizar
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isSuperAdmin && (
+            <button
+              onClick={() => void handleReconcile()}
+              disabled={loading || reconciling}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors"
+            >
+              <RefreshCw size={14} className={reconciling ? 'animate-spin' : ''} />
+              Recuperar archivos
+            </button>
+          )}
+          <button
+            onClick={load}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {error && (
         <div className="mb-4 text-xs text-red-400 bg-red-900/20 border border-red-800/50 rounded-lg px-3 py-2 max-w-3xl">
           {error}
+        </div>
+      )}
+
+      {notice && !error && (
+        <div className="mb-4 text-xs text-emerald-300 bg-emerald-900/20 border border-emerald-800/50 rounded-lg px-3 py-2 max-w-3xl">
+          {notice}
         </div>
       )}
 

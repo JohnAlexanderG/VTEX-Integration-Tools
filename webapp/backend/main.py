@@ -15,7 +15,7 @@ import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiofiles
 from dotenv import dotenv_values, load_dotenv, set_key
@@ -52,9 +52,12 @@ from dependencies import get_current_user, require_admin, require_superadmin  # 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
-# Jobs are stored under /tmp/vtex_webapp/{job_id}/
+# Jobs are stored under /tmp/vtex_webapp/{tenant_id}/{job_id}/.
+# Older deployments used /tmp/vtex_webapp/{job_id}/; reconciliation still
+# adopts that legacy layout so old output files remain downloadable.
 JOBS_BASE = Path("/tmp/vtex_webapp")
 JOBS_BASE.mkdir(exist_ok=True)
+LEGACY_JOB_TENANT_ID = 1
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -1528,12 +1531,37 @@ def _collect_output_files(job_dir: Path) -> List[str]:
     return sorted(output_files)
 
 
+def _iter_orphan_job_dirs(existing_ids: set[str]) -> List[Tuple[int, Path, bool]]:
+    """Return job directories from current and legacy on-disk layouts."""
+    candidates: List[Tuple[int, Path, bool]] = []
+    if not JOBS_BASE.exists():
+        return candidates
+
+    for entry in JOBS_BASE.iterdir():
+        if not entry.is_dir():
+            continue
+
+        if entry.name.isdigit():
+            tenant_id = int(entry.name)
+            for job_dir in entry.iterdir():
+                if job_dir.is_dir() and job_dir.name not in existing_ids:
+                    candidates.append((tenant_id, job_dir, False))
+            continue
+
+        # Legacy layout before tenant isolation: /tmp/vtex_webapp/{job_id}/.
+        if entry.name not in existing_ids:
+            candidates.append((LEGACY_JOB_TENANT_ID, entry, True))
+
+    return candidates
+
+
 async def _reconcile_orphaned_jobs() -> Dict[str, int]:
     """
-    Recupera directorios de job en `/tmp/vtex_webapp/{tenant_id}/{job_id}/` que no
-    tienen fila en la tabla `jobs` — típicamente porque corrieron con una versión del
-    backend anterior a la persistencia en DB, o porque un reinicio del backend
-    (deploy) mató el proceso antes de que terminara y nunca llegó a persistirse.
+    Recupera directorios de job en `/tmp/vtex_webapp/{tenant_id}/{job_id}/` y en
+    el layout antiguo `/tmp/vtex_webapp/{job_id}/` que no tienen fila en la tabla
+    `jobs` — típicamente porque corrieron con una versión del backend anterior a
+    la persistencia en DB, o porque un reinicio del backend (deploy) mató el
+    proceso antes de que terminara y nunca llegó a persistirse.
     Los archivos ya están en disco; esto solo los hace visibles/descargables/
     borrables de nuevo desde la UI. Una carpeta sin archivos de salida generados
     (solo el `_input_*` subido) se recupera igual, marcada como `failed`, para que
@@ -1550,38 +1578,34 @@ async def _reconcile_orphaned_jobs() -> Dict[str, int]:
         async with AsyncSessionLocal() as session:
             existing_ids = set((await session.execute(select(Job.id))).scalars().all())
 
-            for tenant_dir in JOBS_BASE.iterdir():
-                if not tenant_dir.is_dir() or not tenant_dir.name.isdigit():
-                    continue
-                tenant_id = int(tenant_dir.name)
-
-                for job_dir in tenant_dir.iterdir():
-                    if not job_dir.is_dir() or job_dir.name in existing_ids:
-                        continue
-                    try:
-                        output_files = _collect_output_files(job_dir)
-                        has_output = bool(output_files)
-                        mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
-                        session.add(Job(
-                            id=job_dir.name,
-                            tenant_id=tenant_id,
-                            user_id=None,
-                            tool_id="unknown",
-                            tool_name="Job recuperado" if has_output else "Job recuperado (sin salida)",
-                            status="completed" if has_output else "failed",
-                            created_at=mtime,
-                            finished_at=mtime,
-                            exit_code=None,
-                            command=None,
-                            output_files=output_files,
-                            job_dir=str(job_dir),
-                        ))
-                        await session.commit()
-                        recovered += 1
-                    except Exception as exc:  # noqa: BLE001
-                        await session.rollback()
-                        failed += 1
-                        print(f"[jobs] No se pudo recuperar el job huérfano {job_dir}: {exc}")
+            for tenant_id, job_dir, is_legacy in _iter_orphan_job_dirs(existing_ids):
+                try:
+                    output_files = _collect_output_files(job_dir)
+                    has_output = bool(output_files)
+                    mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
+                    session.add(Job(
+                        id=job_dir.name,
+                        tenant_id=tenant_id,
+                        user_id=None,
+                        tool_id="unknown",
+                        tool_name="Job recuperado legado" if is_legacy else (
+                            "Job recuperado" if has_output else "Job recuperado (sin salida)"
+                        ),
+                        status="completed" if has_output else "failed",
+                        created_at=mtime,
+                        finished_at=mtime,
+                        exit_code=None,
+                        command=None,
+                        output_files=output_files,
+                        job_dir=str(job_dir),
+                    ))
+                    await session.commit()
+                    existing_ids.add(job_dir.name)
+                    recovered += 1
+                except Exception as exc:  # noqa: BLE001
+                    await session.rollback()
+                    failed += 1
+                    print(f"[jobs] No se pudo recuperar el job huérfano {job_dir}: {exc}")
 
             if recovered:
                 print(f"[jobs] Recuperados {recovered} job(s) huérfanos desde disco.")
