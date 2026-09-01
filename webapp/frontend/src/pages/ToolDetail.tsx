@@ -123,7 +123,7 @@ export default function ToolDetail() {
       {error && <Alert tone="error" className="mb-4">{error}</Alert>}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,44%)] xl:items-start">
-        <Card>
+        <Card className="min-w-0">
           <CardHeader title="Ejecutar" />
           <ToolRunPanel
             tool={tool}
@@ -133,7 +133,7 @@ export default function ToolDetail() {
           />
         </Card>
 
-        <Card className="xl:sticky xl:top-6">
+        <Card className="min-w-0 xl:sticky xl:top-6">
           <CardHeader title="Documentación" subtitle="Cómo funciona y cómo se usa esta herramienta." />
           <ToolDocsPanel toolId={tool.id} />
         </Card>
