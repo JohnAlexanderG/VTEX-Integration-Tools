@@ -668,6 +668,7 @@ TOOLS: List[Dict[str, Any]] = [
         "description": "Compara precios entre ERP y VTEX para identificar actualizaciones necesarias.",
         "category": "tools",
         "script": "45_price_diff_filter/price_diff_filter.py",
+        "readme": "45_price_diff_filter/precios.md",
         "requires_vtex": False,
         "inputs": [
             {"name": "vtex_skus_file", "type": "file", "label": "Referencia de SKUs VTEX", "required": True,
@@ -1087,6 +1088,32 @@ TOOLS: List[Dict[str, Any]] = [
 ]
 
 TOOLS_BY_ID: Dict[str, Dict] = {t["id"]: t for t in TOOLS}
+
+
+def _resolve_tool_readme(tool: Dict[str, Any]) -> Optional[Path]:
+    """Resolve a tool's documentation file, or None when it has none.
+
+    Uses the optional "readme" key (relative to PROJECT_ROOT) and falls back to
+    README.md inside the tool's script directory. Several tools legitimately
+    share a directory — and therefore a README — which is fine: the README
+    documents the whole directory.
+    """
+    rel = tool.get("readme") or str(Path(tool["script"]).parent / "README.md")
+    base = PROJECT_ROOT.resolve()
+    path = (base / rel).resolve()
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return None
+    if not path.is_file() or path.suffix.lower() != ".md":
+        return None
+    return path
+
+
+# Resolved once at import so /api/tools does not stat 43 files per request.
+TOOL_README_PATHS: Dict[str, Optional[Path]] = {
+    t["id"]: _resolve_tool_readme(t) for t in TOOLS
+}
 LEGACY_PIPELINE_TOOL_IDS = {
     "step_01",
     "step_02",
@@ -1330,6 +1357,7 @@ def _visible_tools_for_user(
             continue
         tool_data = dict(tool)
         tool_data["enabled"] = True
+        tool_data["has_readme"] = TOOL_README_PATHS.get(tool["id"]) is not None
         visible_tools.append(tool_data)
     return visible_tools
 
@@ -2199,6 +2227,34 @@ async def get_tool(
     return visible_tools[0]
 
 
+@app.get("/api/tools/{tool_id}/readme")
+async def get_tool_readme(
+    tool_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a tool's README as markdown.
+
+    A tool without documentation returns 200 with readme=None; 404 is reserved
+    for "you cannot see this tool", so the client can tell the two apart.
+    """
+    tool = TOOLS_BY_ID.get(tool_id)
+    if not tool:
+        return JSONResponse(status_code=404, content={"error": "Tool not found"})
+    permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
+    if not _visible_tools_for_user([tool], permission_map, current_user.role == UserRole.superadmin):
+        return JSONResponse(status_code=404, content={"error": "Tool not found"})
+
+    path = TOOL_README_PATHS.get(tool_id)
+    if path is None or not path.is_file():
+        return {"readme": None, "source": None}
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return JSONResponse(status_code=500, content={"error": "No se pudo leer la documentación"})
+    return {"readme": content, "source": str(path.relative_to(PROJECT_ROOT.resolve()))}
+
+
 @app.get("/api/tools/{tool_id}/template/{input_name}")
 async def download_template(
     tool_id: str,
@@ -2212,6 +2268,11 @@ async def download_template(
         return JSONResponse(status_code=404, content={"error": "Template not found"})
     permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
     if not _visible_tools_for_user([tool], permission_map, current_user.role == UserRole.superadmin):
+        return JSONResponse(status_code=404, content={"error": "Template not found"})
+
+    # input_name lands in a filesystem path, so accept only names this tool
+    # actually declares instead of interpolating the raw path segment.
+    if input_name not in {i["name"] for i in tool.get("inputs", [])}:
         return JSONResponse(status_code=404, content={"error": "Template not found"})
 
     filename_base = f"{tool_id}_{input_name}"
@@ -2333,12 +2394,18 @@ async def run_tool(
 
 @app.get("/api/jobs")
 async def list_jobs(
+    tool_id: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Lista jobs desde DB (fuente de verdad, sobrevive reinicios del backend).
-    Superadmin ve todos; los demás solo los de su tenant."""
+    Superadmin ve todos; los demás solo los de su tenant.
+
+    El filtro opcional tool_id es necesario porque el LIMIT es global: sin él,
+    una herramienta poco usada no encuentra su última corrida."""
     query = select(Job).order_by(Job.created_at.desc()).limit(50)
+    if tool_id:
+        query = query.where(Job.tool_id == tool_id)
     if current_user.role != UserRole.superadmin:
         query = query.where(Job.tenant_id == current_user.tenant_id)
     result = await db.execute(query)
@@ -2521,6 +2588,20 @@ async def update_config(
 # ─────────────────────────────────────────────────────────────────────────────
 # FTP Deploy — Stock Diff → envío de inventario
 # ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/vtex-status")
+async def vtex_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Whether VTEX credentials are configured for the caller's tenant.
+
+    Unlike /api/config (admin only) this is readable by operators, who need to
+    know whether a VTEX tool can run.
+    """
+    tc = await _get_tenant_config(current_user.tenant_id, db)
+    return {"configured": _tenant_vtex_configured(tc)}
+
 
 @app.get("/api/ftp-status")
 async def ftp_status(
