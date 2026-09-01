@@ -19,14 +19,14 @@ export default function LogPanel({ logs, className = '' }: Props) {
 
   if (logs.length === 0) {
     return (
-      <div className={`log-panel bg-gray-950 rounded-lg p-4 font-mono text-xs text-gray-600 ${className}`}>
+      <div className={`scrollbar-thin bg-gray-950 rounded-lg p-4 font-mono text-xs text-gray-600 ${className}`}>
         Sin logs aún…
       </div>
     )
   }
 
   return (
-    <div className={`log-panel bg-gray-950 rounded-lg p-4 font-mono text-xs overflow-y-auto ${className}`}>
+    <div className={`scrollbar-thin bg-gray-950 rounded-lg p-4 font-mono text-xs overflow-y-auto ${className}`}>
       {logs.map((entry, i) => {
         if (entry.type !== 'log' || !entry.text) return null
         const color =

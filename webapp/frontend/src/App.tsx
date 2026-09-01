@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { ToastProvider } from './components/ui'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -12,56 +13,60 @@ import AccessManagement from './pages/AccessManagement'
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Ruta pública */}
-          <Route path="/login" element={<Login />} />
+      {/* Fuera del router: un toast disparado antes de navegar debe sobrevivir
+          al cambio de ruta. */}
+      <ToastProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Ruta pública */}
+            <Route path="/login" element={<Login />} />
 
-          {/* Rutas protegidas (cualquier usuario autenticado) */}
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<Navigate to="/tools" replace />} />
-            <Route path="pipeline" element={<Navigate to="/tools" replace />} />
-            <Route path="tools"    element={<Tools />} />
-            <Route path="jobs"     element={<JobHistory />} />
-
-            {/* Solo admin y superadmin */}
+            {/* Rutas protegidas (cualquier usuario autenticado) */}
             <Route
-              path="config"
+              path="/"
               element={
-                <ProtectedRoute roles={['admin', 'superadmin']}>
-                  <Config />
+                <ProtectedRoute>
+                  <Layout />
                 </ProtectedRoute>
               }
-            />
-            <Route
-              path="users"
-              element={
-                <ProtectedRoute roles={['admin', 'superadmin']}>
-                  <Users />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="access"
-              element={
-                <ProtectedRoute roles={['superadmin']}>
-                  <AccessManagement />
-                </ProtectedRoute>
-              }
-            />
-          </Route>
+            >
+              <Route index element={<Navigate to="/tools" replace />} />
+              <Route path="pipeline" element={<Navigate to="/tools" replace />} />
+              <Route path="tools"    element={<Tools />} />
+              <Route path="jobs"     element={<JobHistory />} />
 
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/tools" replace />} />
-        </Routes>
-      </BrowserRouter>
+              {/* Solo admin y superadmin */}
+              <Route
+                path="config"
+                element={
+                  <ProtectedRoute roles={['admin', 'superadmin']}>
+                    <Config />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="users"
+                element={
+                  <ProtectedRoute roles={['admin', 'superadmin']}>
+                    <Users />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="access"
+                element={
+                  <ProtectedRoute roles={['superadmin']}>
+                    <AccessManagement />
+                  </ProtectedRoute>
+                }
+              />
+            </Route>
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/tools" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
   )
 }

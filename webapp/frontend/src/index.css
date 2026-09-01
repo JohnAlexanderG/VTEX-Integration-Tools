@@ -4,28 +4,36 @@
 
 @layer base {
   body {
-    @apply bg-gray-950 text-gray-100 antialiased;
+    @apply bg-surface-0 text-ink-1 antialiased;
+  }
+
+  /* Transición acotada a elementos interactivos. La regla `*` anterior
+     aplicaba a cada nodo del árbol —incluidas las miles de líneas del panel
+     de logs— y peleaba con las animaciones de entrada de Toast y Modal. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [role='switch'] {
+    transition-property: background-color, border-color, color, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: ease-in-out;
   }
 }
 
-/* Custom scrollbar for log panels */
-.log-panel::-webkit-scrollbar {
+/* Scrollbar fina para paneles con scroll propio (logs, documentación). */
+.scrollbar-thin::-webkit-scrollbar {
   width: 6px;
 }
-.log-panel::-webkit-scrollbar-track {
-  background: #1a1a2e;
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: theme('colors.surface.1');
 }
-.log-panel::-webkit-scrollbar-thumb {
-  background: #374151;
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: theme('colors.line.2');
   border-radius: 3px;
 }
-.log-panel::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
-}
-
-/* Smooth transitions */
-* {
-  transition-property: background-color, border-color, color, opacity;
-  transition-duration: 150ms;
-  transition-timing-function: ease-in-out;
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: theme('colors.line.3');
 }
