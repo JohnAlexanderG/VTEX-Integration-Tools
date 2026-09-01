@@ -51,6 +51,8 @@ export interface JobProgress {
 export interface Job {
   id: string
   tenant_id: number
+  tenant_name: string
+  tenant_slug: string
   tool_id: string
   tool_name: string
   status: JobStatus

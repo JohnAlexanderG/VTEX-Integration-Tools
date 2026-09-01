@@ -2402,27 +2402,38 @@ async def list_jobs(
     Superadmin ve todos; los demás solo los de su tenant.
 
     El filtro opcional tool_id es necesario porque el LIMIT es global: sin él,
-    una herramienta poco usada no encuentra su última corrida."""
-    query = select(Job).order_by(Job.created_at.desc()).limit(50)
+    una herramienta poco usada no encuentra su última corrida.
+
+    Incluye tenant_name/tenant_slug via join: superadmin ve jobs de todos los
+    tenants mezclados en una sola lista y necesita distinguir a cuál pertenece
+    cada uno."""
+    query = (
+        select(Job, Tenant.name, Tenant.slug)
+        .join(Tenant, Job.tenant_id == Tenant.id)
+        .order_by(Job.created_at.desc())
+        .limit(50)
+    )
     if tool_id:
         query = query.where(Job.tool_id == tool_id)
     if current_user.role != UserRole.superadmin:
         query = query.where(Job.tenant_id == current_user.tenant_id)
     result = await db.execute(query)
-    rows = result.scalars().all()
+    rows = result.all()
     visible = [
         {
-            "id": row.id,
-            "tenant_id": row.tenant_id,
-            "user_id": row.user_id,
-            "tool_id": row.tool_id,
-            "tool_name": row.tool_name,
-            "status": row.status,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-            "exit_code": row.exit_code,
-            "output_files": row.output_files or [],
-            "job_dir": row.job_dir,
+            "id": row.Job.id,
+            "tenant_id": row.Job.tenant_id,
+            "tenant_name": row.name,
+            "tenant_slug": row.slug,
+            "user_id": row.Job.user_id,
+            "tool_id": row.Job.tool_id,
+            "tool_name": row.Job.tool_name,
+            "status": row.Job.status,
+            "created_at": row.Job.created_at.isoformat() if row.Job.created_at else None,
+            "finished_at": row.Job.finished_at.isoformat() if row.Job.finished_at else None,
+            "exit_code": row.Job.exit_code,
+            "output_files": row.Job.output_files or [],
+            "job_dir": row.Job.job_dir,
         }
         for row in rows
     ]

@@ -199,6 +199,11 @@ export default function JobHistory() {
                 <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
                   Herramienta
                 </th>
+                {isSuperAdmin && (
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
+                    Tenant
+                  </th>
+                )}
                 <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
                   Estado
                 </th>
@@ -212,6 +217,9 @@ export default function JobHistory() {
               {filtered.map((job) => (
                 <tr key={job.id} className="border-b border-line-1 last:border-b-0 hover:bg-surface-1">
                   <td className="px-4 py-3 font-medium text-ink-1">{job.tool_name}</td>
+                  {isSuperAdmin && (
+                    <td className="px-4 py-3 text-ink-4">{job.tenant_name}</td>
+                  )}
                   <td className="px-4 py-3">
                     <StatusBadge status={job.status} />
                   </td>
