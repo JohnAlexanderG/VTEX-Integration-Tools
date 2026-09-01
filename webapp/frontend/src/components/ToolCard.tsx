@@ -10,7 +10,8 @@ import StatusBadge from './StatusBadge'
 
 interface Props {
   tool: Tool
-  vtexConfigured: boolean
+  /** `null` = no se pudo determinar; no bloquea la ejecución. */
+  vtexConfigured: boolean | null
   initialValues?: Record<string, string | boolean | File | null>
   onComplete?: (jobId: string, outputFiles: string[]) => void
   /** Job todavía activo en el servidor para esta tool (reenganche tras reload/colapso). */
@@ -118,6 +119,15 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const [jobId, setJobId] = useState<string | null>(resumeJobId ?? null)
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(() => Boolean(resumeJobId))
+
+  // resumeJobId puede llegar después del montaje (fetchJobs resuelve tarde).
+  // Solo lo adoptamos si todavía no hay job, para no pisar una corrida recién
+  // iniciada por el usuario.
+  useEffect(() => {
+    if (!resumeJobId || jobId !== null) return
+    setJobId(resumeJobId)
+    setShowLogs(true)
+  }, [resumeJobId, jobId])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastRunWasDryRun, setLastRunWasDryRun] = useState(false)
   const { logs, status, progress, outputFiles, exitCode, connectionState } = useJob(jobId)
@@ -223,12 +233,20 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
     isSubmitting ||
     status === 'pending' ||
     (jobId !== null && status === 'running' && connectionState === 'connecting')
-  const vtexWarning = tool.requires_vtex && !vtexConfigured
+  // `false` significa "sabemos que no está configurado"; `null` es "no pudimos
+  // averiguarlo" y no debe bloquear la ejecución (el backend valida igual).
+  const vtexWarning = tool.requires_vtex && vtexConfigured === false
 
-  // Notify parent when job completes with output files
-  if (status === 'completed' && outputFiles.length > 0 && jobId && onComplete) {
-    onComplete(jobId, outputFiles)
-  }
+  // Notify parent when job completes with output files. Debe ser un efecto:
+  // llamarlo durante el render dispara un setState del padre en pleno render
+  // del hijo, y se repite en cada render mientras el job siga completado.
+  const notifiedJobRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (status !== 'completed' || !jobId || outputFiles.length === 0) return
+    if (notifiedJobRef.current === jobId) return
+    notifiedJobRef.current = jobId
+    onComplete?.(jobId, outputFiles)
+  }, [status, jobId, outputFiles, onComplete])
 
   const showDeploySection = isStockDiff && status === 'completed' && jobId && !lastRunWasDryRun
   const deployHasLambdaWarning = deployResult?.ok && !deployResult.lambda_invoked

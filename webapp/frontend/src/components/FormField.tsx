@@ -1,6 +1,7 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Upload, X, Download } from 'lucide-react'
 import type { ToolInput } from '../types'
+import { downloadTemplate } from '../api/client'
 
 interface Props {
   field: ToolInput
@@ -11,6 +12,7 @@ interface Props {
 
 export default function FormField({ field, value, onChange, toolId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [templateError, setTemplateError] = useState<string | null>(null)
 
   const labelClass = 'block text-xs font-medium text-gray-400 mb-1'
   const inputClass =
@@ -26,15 +28,22 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
             {field.required && <span className="text-vtex-pink ml-1">*</span>}
           </label>
           {toolId && (
-            <a
-              href={`/api/tools/${toolId}/template/${field.name}`}
-              download
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setTemplateError(null)
+                downloadTemplate(toolId, field.name).catch((err: unknown) =>
+                  setTemplateError(
+                    err instanceof Error ? err.message : 'No se pudo descargar la plantilla',
+                  ),
+                )
+              }}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
             >
               <Download size={11} />
               Plantilla
-            </a>
+            </button>
           )}
         </div>
         <div
@@ -83,6 +92,9 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
             </div>
           )}
         </div>
+        {templateError && (
+          <p className="mt-1 text-xs text-red-400">{templateError}</p>
+        )}
       </div>
     )
   }

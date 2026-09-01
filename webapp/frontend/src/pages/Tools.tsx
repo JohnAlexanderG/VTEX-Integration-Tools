@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
 import type { Tool } from '../types'
-import { fetchTools, fetchConfig, fetchJobs } from '../api/client'
+import { fetchTools, fetchVtexStatus, fetchJobs } from '../api/client'
 import ToolCard from '../components/ToolCard'
-import { useAuth } from '../context/AuthContext'
 
 export default function Tools() {
-  const { isAdmin } = useAuth()
   const [tools, setTools] = useState<Tool[]>([])
-  const [vtexConfigured, setVtexConfigured] = useState(false)
+  const [vtexConfigured, setVtexConfigured] = useState<boolean | null>(null)
   const [search, setSearch] = useState('')
   const [activeToolId, setActiveToolId] = useState<string | null>(null)
   const [activeJobsByTool, setActiveJobsByTool] = useState<Record<string, string>>({})
@@ -26,11 +24,12 @@ export default function Tools() {
           }),
       )
     })
-    if (isAdmin) {
-      fetchConfig().then((c) => setVtexConfigured(c.configured)).catch(() => setVtexConfigured(false))
-    } else {
-      setVtexConfigured(false)
-    }
+    // /api/vtex-status es legible por cualquier rol; /api/config era admin-only
+    // y dejaba a los operadores con el botón Ejecutar deshabilitado. Si falla,
+    // queda en null: mostramos la UI habilitada y deja que el backend valide.
+    fetchVtexStatus()
+      .then((s) => setVtexConfigured(s.configured))
+      .catch(() => setVtexConfigured(null))
 
     // Reenganchar jobs para cada tool: los que siguen corriendo en el servidor
     // (el usuario pudo recargar la página o colapsar la tarjeta sin que el job
@@ -54,7 +53,7 @@ export default function Tools() {
         }
       })
       .catch(() => {})
-  }, [isAdmin])
+  }, [])
 
   const filtered = tools.filter(
     (t) =>
