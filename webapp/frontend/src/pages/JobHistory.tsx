@@ -199,6 +199,11 @@ export default function JobHistory() {
                 <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
                   Herramienta
                 </th>
+                {isSuperAdmin && (
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
+                    Tenant
+                  </th>
+                )}
                 <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
                   Estado
                 </th>
@@ -212,22 +217,27 @@ export default function JobHistory() {
               {filtered.map((job) => (
                 <tr key={job.id} className="border-b border-line-1 last:border-b-0 hover:bg-surface-1">
                   <td className="px-4 py-3 font-medium text-ink-1">{job.tool_name}</td>
+                  {isSuperAdmin && (
+                    <td className="px-4 py-3 text-ink-4">{job.tenant_name}</td>
+                  )}
                   <td className="px-4 py-3">
                     <StatusBadge status={job.status} />
                   </td>
                   <td className="px-4 py-3 text-ink-4">{formatDateTime(job.created_at)}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 max-w-[260px] ml-auto">
                       {job.output_files.map((filename) => (
-                        <button
+                        <Button
                           key={filename}
+                          variant="secondary"
+                          size="sm"
+                          className="max-w-full"
                           onClick={() => void handleDownload(job.id, filename)}
-                          title={`Descargar ${filename}`}
-                          aria-label={`Descargar ${filename}`}
-                          className="rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-ink-1"
+                          title={filename}
                         >
-                          <Download size={14} />
-                        </button>
+                          <Download size={12} className="flex-shrink-0" />
+                          <span className="truncate">{filename}</span>
+                        </Button>
                       ))}
                       {isAdmin && (
                         <button
@@ -235,7 +245,7 @@ export default function JobHistory() {
                           disabled={deletingId === job.id}
                           title="Eliminar job"
                           aria-label={`Eliminar job ${job.tool_name}`}
-                          className="rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
+                          className="flex-shrink-0 rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
                         >
                           <Trash2 size={14} />
                         </button>
