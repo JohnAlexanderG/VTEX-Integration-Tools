@@ -66,55 +66,55 @@ export default function Tools() {
   return (
     <div className="p-4 md:p-6">
       <div className="mb-5 md:mb-6">
-        <h1 className="text-xl font-bold text-gray-100">Herramientas</h1>
-        <p className="text-sm text-gray-500 mt-1">Utilidades individuales para transformación y gestión de datos.</p>
+        <h1 className="text-xl font-bold text-ink-1">Herramientas</h1>
+        <p className="text-sm text-ink-4 mt-1">Utilidades individuales para transformación y gestión de datos.</p>
       </div>
 
       {/* Search */}
       <div className="relative mb-5 md:mb-6 max-w-md">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
         <input
           type="text"
           placeholder="Buscar herramienta…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-vtex-pink"
+          className="w-full pl-9 pr-4 py-2 bg-surface-2 border border-line-2 rounded-lg text-sm text-ink-1 placeholder-ink-4 focus:outline-none focus:border-accent"
         />
       </div>
 
       {/* Tools grid */}
       <div className="space-y-4 max-w-3xl">
         {filtered.length === 0 && (
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-ink-4">
             {tools.length === 0 ? 'No hay herramientas disponibles para tu cuenta.' : 'No se encontraron herramientas.'}
           </p>
         )}
         {filtered.map((tool) => {
           const isOpen = activeToolId === tool.id
           return (
-            <div key={tool.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <div key={tool.id} className="bg-surface-1 border border-line-1 rounded-card overflow-hidden">
               <button
                 onClick={() => {
                   setActiveToolId(isOpen ? null : tool.id)
                 }}
-                className="w-full flex items-center justify-between gap-3 px-4 md:px-5 py-3 md:py-4 text-left hover:bg-gray-800/40 transition-colors"
+                className="w-full flex items-center justify-between gap-3 px-4 md:px-5 py-3 md:py-4 text-left hover:bg-surface-2/40 transition-colors"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-gray-100">{tool.shortName}</span>
+                    <span className="text-sm font-medium text-ink-1">{tool.shortName}</span>
                     {tool.requires_vtex && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-vtex-pink/20 text-vtex-pink rounded font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 bg-accent/20 text-accent rounded font-medium">
                         VTEX API
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{tool.description}</p>
+                  <p className="text-xs text-ink-4 truncate mt-0.5">{tool.description}</p>
                 </div>
-                <span className="text-gray-600 flex-shrink-0">{isOpen ? '▲' : '▼'}</span>
+                <span className="text-ink-4 flex-shrink-0">{isOpen ? '▲' : '▼'}</span>
               </button>
 
               {isOpen && (
-                <div className="border-t border-gray-800 p-4 md:p-5">
+                <div className="border-t border-line-1 p-4 md:p-5">
                   <ToolCard
                     tool={tool}
                     vtexConfigured={vtexConfigured}

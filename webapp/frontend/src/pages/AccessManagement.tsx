@@ -3,33 +3,19 @@ import type { FormEvent } from 'react'
 import { KeyRound, Plus, RefreshCw, Search, Users as UsersIcon, X } from 'lucide-react'
 import { createTenant, fetchAccessOverview, updateTenantAccess } from '../api/client'
 import type { AccessCatalog, TenantAccess } from '../types'
-
-function Toggle({
-  checked,
-  disabled,
-  onChange,
-}: {
-  checked: boolean
-  disabled?: boolean
-  onChange: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onChange}
-      className={`relative h-7 w-12 rounded-full transition-colors ${
-        checked ? 'bg-green-600' : 'bg-gray-700'
-      } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
-    >
-      <span
-        className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition-transform ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
-      />
-    </button>
-  )
-}
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Skeleton,
+  Toggle,
+  cn,
+} from '../components/ui'
 
 function slugifyTenant(value: string): string {
   return value
@@ -138,141 +124,117 @@ export default function AccessManagement() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-100">Accesos por tenant</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Desde aquí `Laburu Agencia` puede habilitar secciones y herramientas por cuenta.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 self-start">
-          <button
-            type="button"
-            onClick={() => setShowCreateTenant((value) => !value)}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-          >
-            {showCreateTenant ? <X size={15} /> : <Plus size={15} />}
-            {showCreateTenant ? 'Cancelar' : 'Nuevo tenant'}
-          </button>
-          <button
-            type="button"
-            onClick={() => load()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-800"
-          >
-            <RefreshCw size={15} />
-            Recargar
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Accesos por tenant"
+        description="Desde aquí `Laburu Agencia` puede habilitar secciones y herramientas por cuenta."
+        actions={
+          <>
+            <Button
+              icon={showCreateTenant ? X : Plus}
+              onClick={() => setShowCreateTenant((value) => !value)}
+            >
+              {showCreateTenant ? 'Cancelar' : 'Nuevo tenant'}
+            </Button>
+            <Button variant="secondary" icon={RefreshCw} onClick={() => load()}>
+              Recargar
+            </Button>
+          </>
+        }
+      />
 
-      {error && (
-        <div className="mb-4 rounded-xl border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+      {error && <Alert tone="error" className="mb-4">{error}</Alert>}
 
       {showCreateTenant && (
-        <form
-          onSubmit={handleCreateTenant}
-          className="mb-4 rounded-2xl border border-gray-800 bg-gray-900 p-4"
-        >
+        <Card as="section" className="mb-4">
+          <form onSubmit={handleCreateTenant}>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,320px)_auto] md:items-end">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-400">Nombre del tenant</label>
-              <input
+            <Field label="Nombre del tenant" htmlFor="tenant-name">
+              <Input
+                id="tenant-name"
                 type="text"
                 value={tenantName}
                 onChange={(e) => handleTenantNameChange(e.target.value)}
                 required
                 placeholder="Nuevo Cliente"
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
               />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-400">Slug</label>
-              <input
+            </Field>
+            <Field label="Slug" htmlFor="tenant-slug">
+              <Input
+                id="tenant-slug"
                 type="text"
                 value={tenantSlug}
                 onChange={(e) => handleTenantSlugChange(e.target.value)}
                 required
                 placeholder="nuevo-cliente"
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
               />
-            </div>
-            <button
-              type="submit"
-              disabled={creatingTenant}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Plus size={15} />
-              {creatingTenant ? 'Creando...' : 'Crear tenant'}
-            </button>
+            </Field>
+            <Button type="submit" icon={Plus} loading={creatingTenant}>
+              {creatingTenant ? 'Creando…' : 'Crear tenant'}
+            </Button>
           </div>
           {createTenantError && (
-            <div className="mt-3 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">
-              {createTenantError}
-            </div>
+            <Alert tone="error" className="mt-3">{createTenantError}</Alert>
           )}
-        </form>
+          </form>
+        </Card>
       )}
 
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
-          <div className="relative mb-4">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-            <input
+        <Card as="section">
+          <div className="mb-4">
+            <Input
               type="text"
+              leftIcon={Search}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar tenant..."
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 py-2 pl-9 pr-3 text-sm text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+              placeholder="Buscar tenant…"
+              aria-label="Buscar tenant"
             />
           </div>
 
           <div className="space-y-2">
-            {loading && [...Array(4)].map((_, index) => (
-              <div key={index} className="h-16 animate-pulse rounded-xl bg-gray-800" />
-            ))}
+            {loading && <Skeleton className="h-16" count={4} />}
             {!loading && filteredTenants.map((tenant) => (
               <button
                 key={tenant.id}
                 type="button"
                 onClick={() => setSelectedTenantId(tenant.id)}
-                className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                className={cn(
+                  'w-full rounded-card border px-4 py-3 text-left transition-colors',
                   tenant.id === selectedTenantId
-                    ? 'border-indigo-500 bg-indigo-950/40'
-                    : 'border-gray-800 bg-gray-950 hover:bg-gray-800/70'
-                }`}
+                    ? 'border-accent bg-accent-soft'
+                    : 'border-line-1 bg-surface-0 hover:bg-surface-2/70',
+                )}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-gray-100">{tenant.name}</p>
-                    <p className="text-xs text-gray-500">{tenant.slug}</p>
+                    <p className="text-sm font-medium text-ink-1">{tenant.name}</p>
+                    <p className="text-xs text-ink-4">{tenant.slug}</p>
                   </div>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-                    tenant.is_active ? 'bg-green-900/50 text-green-300' : 'bg-gray-800 text-gray-400'
-                  }`}>
+                  <Badge tone={tenant.is_active ? 'success' : 'neutral'}>
                     {tenant.is_active ? 'Activo' : 'Inactivo'}
-                  </span>
+                  </Badge>
                 </div>
               </button>
             ))}
           </div>
-        </section>
+        </Card>
 
-        <section className="min-w-0 rounded-2xl border border-gray-800 bg-gray-900 p-4 md:p-5">
+        <Card as="section" className="min-w-0">
           {!selectedTenant ? (
-            <div className="rounded-xl border border-dashed border-gray-800 px-4 py-10 text-center text-sm text-gray-500">
-              Selecciona un tenant para administrar sus accesos.
-            </div>
+            <EmptyState
+              icon={KeyRound}
+              title="Ningún tenant seleccionado"
+              description="Selecciona un tenant para administrar sus accesos."
+            />
           ) : (
             <div className="space-y-6">
-              <div className="flex flex-col gap-2 border-b border-gray-800 pb-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-2 border-b border-line-1 pb-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-100">{selectedTenant.name}</h2>
-                  <p className="text-sm text-gray-500">{selectedTenant.slug}</p>
+                  <h2 className="text-lg font-semibold text-ink-1">{selectedTenant.name}</h2>
+                  <p className="text-sm text-ink-4">{selectedTenant.slug}</p>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-gray-400">
+                <div className="inline-flex items-center gap-2 rounded-control border border-line-1 bg-surface-0 px-3 py-2 text-xs text-ink-3">
                   <UsersIcon size={14} />
                   {selectedTenant.users.length} usuario{selectedTenant.users.length === 1 ? '' : 's'}
                 </div>
@@ -280,22 +242,23 @@ export default function AccessManagement() {
 
               <div>
                 <div className="mb-3 flex items-center gap-2">
-                  <KeyRound size={15} className="text-indigo-300" />
-                  <h3 className="text-sm font-semibold text-gray-100">Secciones</h3>
+                  <KeyRound size={15} className="text-accent" />
+                  <h3 className="text-sm font-semibold text-ink-1">Secciones</h3>
                 </div>
                 <div className="space-y-3">
                   {catalog.sections.map((section) => {
                     const enabled = selectedTenant.permissions.sections[section.id] ?? true
                     return (
-                      <div key={section.id} className="flex items-center justify-between gap-4 rounded-xl border border-gray-800 bg-gray-950 px-4 py-3">
+                      <div key={section.id} className="flex items-center justify-between gap-4 rounded-card border border-line-1 bg-surface-0 px-4 py-3">
                         <div>
-                          <p className="text-sm font-medium text-gray-100">{section.label}</p>
-                          <p className="text-xs text-gray-500">{section.description}</p>
+                          <p className="text-sm font-medium text-ink-1">{section.label}</p>
+                          <p className="text-xs text-ink-4">{section.description}</p>
                         </div>
                         <Toggle
                           checked={enabled}
                           disabled={savingKey === section.permission_key}
-                          onChange={() => handlePermissionChange(section.permission_key, !enabled)}
+                          onChange={(next) => handlePermissionChange(section.permission_key, next)}
+                          label={`Acceso a ${section.label}`}
                         />
                       </div>
                     )
@@ -304,22 +267,23 @@ export default function AccessManagement() {
               </div>
 
               <div>
-                <h3 className="mb-3 text-sm font-semibold text-gray-100">Herramientas</h3>
+                <h3 className="mb-3 text-sm font-semibold text-ink-1">Herramientas</h3>
                 <div className="grid gap-3 lg:grid-cols-2">
                   {catalog.tools.map((tool) => {
                     const enabled = selectedTenant.permissions.tools[tool.id] ?? true
                     return (
-                      <div key={tool.id} className="flex items-center justify-between gap-4 rounded-xl border border-gray-800 bg-gray-950 px-4 py-3">
+                      <div key={tool.id} className="flex items-center justify-between gap-4 rounded-card border border-line-1 bg-surface-0 px-4 py-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-gray-100">
+                          <p className="truncate text-sm font-medium text-ink-1">
                             {tool.shortName}
                           </p>
-                          <p className="text-xs text-gray-500">Herramienta</p>
+                          <p className="text-xs text-ink-4">Herramienta</p>
                         </div>
                         <Toggle
                           checked={enabled}
                           disabled={savingKey === tool.permission_key}
-                          onChange={() => handlePermissionChange(tool.permission_key, !enabled)}
+                          onChange={(next) => handlePermissionChange(tool.permission_key, next)}
+                          label={`Acceso a ${tool.shortName}`}
                         />
                       </div>
                     )
@@ -328,28 +292,26 @@ export default function AccessManagement() {
               </div>
 
               <div>
-                <h3 className="mb-3 text-sm font-semibold text-gray-100">Usuarios del tenant</h3>
+                <h3 className="mb-3 text-sm font-semibold text-ink-1">Usuarios del tenant</h3>
                 <div className="space-y-2">
                   {selectedTenant.users.map((user) => (
-                    <div key={user.id} className="flex items-center justify-between rounded-xl border border-gray-800 bg-gray-950 px-4 py-3">
+                    <div key={user.id} className="flex items-center justify-between rounded-card border border-line-1 bg-surface-0 px-4 py-3">
                       <div>
-                        <p className="text-sm font-medium text-gray-100">{user.username}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm font-medium text-ink-1">{user.username}</p>
+                        <p className="text-xs text-ink-4">
                           {user.role} {user.email ? `• ${user.email}` : ''}
                         </p>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-                        user.is_active ? 'bg-green-900/50 text-green-300' : 'bg-gray-800 text-gray-400'
-                      }`}>
+                      <Badge tone={user.is_active ? 'success' : 'neutral'}>
                         {user.is_active ? 'Activo' : 'Inactivo'}
-                      </span>
+                      </Badge>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           )}
-        </section>
+        </Card>
       </div>
     </div>
   )

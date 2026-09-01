@@ -1,9 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Download, RefreshCw, Trash2 } from 'lucide-react'
+import { Download, History, RefreshCw, Trash2 } from 'lucide-react'
 import type { Job } from '../types'
 import { fetchJobs, downloadJobFile, deleteJob, reconcileJobs } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/StatusBadge'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  useToast,
+} from '../components/ui'
 
 function formatDateTime(value: string | null): string {
   if (!value) return '—'
@@ -18,11 +29,13 @@ function formatDateTime(value: string | null): string {
 
 export default function JobHistory() {
   const { isAdmin, isSuperAdmin } = useAuth()
+  const toast = useToast()
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [jobToDelete, setJobToDelete] = useState<Job | null>(null)
   const [reconciling, setReconciling] = useState(false)
 
   const load = () => {
@@ -42,21 +55,20 @@ export default function JobHistory() {
     try {
       await downloadJobFile(jobId, filename)
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'No se pudo descargar el archivo')
+      toast.error(e instanceof Error ? e.message : 'No se pudo descargar el archivo')
     }
   }
 
-  const handleDelete = async (job: Job) => {
-    const label = job.tool_name || job.id
-    if (!window.confirm(`¿Eliminar el job "${label}" y sus archivos? Esta acción no se puede deshacer.`)) {
-      return
-    }
-    setDeletingId(job.id)
+  const confirmDelete = async () => {
+    if (!jobToDelete) return
+    setDeletingId(jobToDelete.id)
     try {
-      await deleteJob(job.id)
-      setJobs((prev) => prev.filter((j) => j.id !== job.id))
+      await deleteJob(jobToDelete.id)
+      setJobs((prev) => prev.filter((j) => j.id !== jobToDelete.id))
+      setJobToDelete(null)
+      toast.success('Job eliminado.')
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'No se pudo eliminar el job')
+      toast.error(e instanceof Error ? e.message : 'No se pudo eliminar el job')
     } finally {
       setDeletingId(null)
     }
@@ -87,103 +99,109 @@ export default function JobHistory() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-5 md:mb-6 flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-100">Historial de Jobs</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Ejecuciones pasadas y sus archivos de salida.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {isSuperAdmin && (
-            <button
-              onClick={() => void handleReconcile()}
-              disabled={loading || reconciling}
-              className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors"
-            >
-              <RefreshCw size={14} className={reconciling ? 'animate-spin' : ''} />
-              Recuperar archivos
-            </button>
-          )}
-          <button
-            onClick={load}
-            disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Actualizar
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Historial de Jobs"
+        description="Ejecuciones pasadas y sus archivos de salida."
+        actions={
+          <>
+            {isSuperAdmin && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleReconcile()}
+                disabled={loading || reconciling}
+              >
+                <RefreshCw size={13} className={reconciling ? 'animate-spin' : ''} />
+                Recuperar archivos
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              Actualizar
+            </Button>
+          </>
+        }
+      />
 
-      {error && (
-        <div className="mb-4 text-xs text-red-400 bg-red-900/20 border border-red-800/50 rounded-lg px-3 py-2 max-w-3xl">
-          {error}
-        </div>
-      )}
-
-      {notice && !error && (
-        <div className="mb-4 text-xs text-emerald-300 bg-emerald-900/20 border border-emerald-800/50 rounded-lg px-3 py-2 max-w-3xl">
-          {notice}
-        </div>
-      )}
+      {error && <Alert tone="error" className="mb-4 max-w-3xl">{error}</Alert>}
+      {notice && !error && <Alert tone="success" className="mb-4 max-w-3xl">{notice}</Alert>}
 
       <div className="space-y-3 max-w-3xl">
+        {loading && <Skeleton className="h-24" count={3} />}
+
         {!loading && jobs.length === 0 && !error && (
-          <p className="text-sm text-gray-600">No hay jobs registrados.</p>
+          <EmptyState
+            icon={History}
+            title="No hay jobs registrados"
+            description="Cuando ejecutes una herramienta, su corrida aparece acá con sus archivos de salida."
+          />
         )}
 
-        {jobs.map((job) => (
-          <div key={job.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-            <div className="px-4 md:px-5 py-4 border-b border-gray-800">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-gray-100">{job.tool_name}</span>
-                    <StatusBadge status={job.status} />
-                    {isSuperAdmin && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-gray-800 text-gray-400 border border-gray-700 rounded">
-                        Tenant {job.tenant_id}
-                      </span>
-                    )}
+        {!loading &&
+          jobs.map((job) => (
+            <Card key={job.id} padded={false} className="overflow-hidden">
+              <div className="px-4 md:px-5 py-4 border-b border-line-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-ink-1">{job.tool_name}</span>
+                      <StatusBadge status={job.status} />
+                      {isSuperAdmin && <Badge>Tenant {job.tenant_id}</Badge>}
+                    </div>
+                    <p className="text-xs text-ink-4 mt-0.5">{formatDateTime(job.created_at)}</p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{formatDateTime(job.created_at)}</p>
-                </div>
 
-                {isAdmin && (
-                  <button
-                    onClick={() => void handleDelete(job)}
-                    disabled={deletingId === job.id}
-                    title="Eliminar job"
-                    className="flex-shrink-0 p-1.5 text-gray-500 hover:text-red-400 hover:bg-gray-800 disabled:opacity-40 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {job.output_files.length > 0 && (
-              <div className="px-4 md:px-5 py-4">
-                <p className="text-xs font-medium text-gray-400 mb-2">Archivos de salida</p>
-                <div className="flex flex-wrap gap-2">
-                  {job.output_files.map((filename) => (
+                  {isAdmin && (
                     <button
-                      key={filename}
-                      type="button"
-                      onClick={() => void handleDownload(job.id, filename)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors max-w-full"
+                      onClick={() => setJobToDelete(job)}
+                      disabled={deletingId === job.id}
+                      title="Eliminar job"
+                      aria-label={`Eliminar job ${job.tool_name}`}
+                      className="flex-shrink-0 rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
                     >
-                      <Download size={12} className="flex-shrink-0" />
-                      <span className="truncate">{filename}</span>
+                      <Trash2 size={15} />
                     </button>
-                  ))}
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        ))}
+
+              {job.output_files.length > 0 && (
+                <div className="px-4 md:px-5 py-4">
+                  <p className="text-xs font-medium text-ink-3 mb-2">Archivos de salida</p>
+                  <div className="flex flex-wrap gap-2">
+                    {job.output_files.map((filename) => (
+                      <Button
+                        key={filename}
+                        variant="secondary"
+                        size="sm"
+                        className="max-w-full"
+                        onClick={() => void handleDownload(job.id, filename)}
+                      >
+                        <Download size={12} className="flex-shrink-0" />
+                        <span className="truncate">{filename}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          ))}
       </div>
+
+      <ConfirmDialog
+        open={jobToDelete !== null}
+        title="Eliminar job"
+        message={
+          <>
+            Se eliminará <span className="font-medium text-ink-1">{jobToDelete?.tool_name || jobToDelete?.id}</span>{' '}
+            y sus archivos generados. Esta acción no se puede deshacer.
+          </>
+        }
+        confirmLabel="Eliminar"
+        loading={deletingId !== null}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setJobToDelete(null)}
+      />
     </div>
   )
 }

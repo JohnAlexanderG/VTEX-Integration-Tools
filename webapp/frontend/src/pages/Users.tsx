@@ -1,8 +1,24 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, ToggleLeft, ToggleRight } from 'lucide-react'
+import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, Users as UsersIcon } from 'lucide-react'
 import { fetchTenants, fetchUsers, createUser, updateUser, type ApiTenant, type ApiUser } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  Skeleton,
+  Toggle,
+  cn,
+  useToast,
+} from '../components/ui'
+import type { BadgeTone } from '../components/ui'
 
 type RoleFilter = 'all' | 'admin' | 'operator'
 
@@ -12,15 +28,16 @@ const ROLE_LABELS: Record<string, string> = {
   operator:   'Operador',
 }
 
-const ROLE_COLORS: Record<string, string> = {
-  superadmin: 'bg-purple-900 text-purple-300 border-purple-700',
-  admin:      'bg-blue-900  text-blue-300  border-blue-700',
-  operator:   'bg-gray-800  text-gray-300  border-gray-700',
+const ROLE_TONES: Record<string, BadgeTone> = {
+  superadmin: 'accent',
+  admin:      'info',
+  operator:   'neutral',
 }
 
 export default function Users() {
   const { user: me, isSuperAdmin, hasSectionAccess } = useAuth()
   const usersAllowed = hasSectionAccess('users')
+  const toast = useToast()
 
   const [users,       setUsers]       = useState<ApiUser[]>([])
   const [loading,     setLoading]     = useState(true)
@@ -30,6 +47,7 @@ export default function Users() {
   const [saving,      setSaving]      = useState(false)
   const [tenants,     setTenants]     = useState<ApiTenant[]>([])
   const [movingUserId, setMovingUserId] = useState<number | null>(null)
+  const [togglingUserId, setTogglingUserId] = useState<number | null>(null)
 
   // Formulario de nuevo usuario
   const [newUsername, setNewUsername] = useState('')
@@ -86,11 +104,16 @@ export default function Users() {
   }
 
   async function toggleActive(u: ApiUser) {
+    // Sin este guard un doble click dispara dos updateUser.
+    if (togglingUserId !== null) return
+    setTogglingUserId(u.id)
     try {
       await updateUser(u.id, { is_active: !u.is_active })
       await load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message ?? 'No se pudo actualizar el usuario')
+    } finally {
+      setTogglingUserId(null)
     }
   }
 
@@ -101,7 +124,7 @@ export default function Users() {
       await updateUser(u.id, { tenant_id: tenantId })
       await load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message ?? 'No se pudo mover el usuario')
     } finally {
       setMovingUserId(null)
     }
@@ -115,119 +138,87 @@ export default function Users() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-gray-100">Usuarios</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {isSuperAdmin ? 'Todos los tenants' : me?.tenant_name}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={load}
-            className="p-2 text-gray-400 hover:text-gray-100 hover:bg-gray-800 rounded-lg transition-colors"
-            title="Recargar"
-          >
-            <RefreshCw size={16} />
-          </button>
-          <button
-            onClick={() => setShowCreate(v => !v)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500
-                       text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <UserPlus size={15} />
-            Nuevo usuario
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Usuarios"
+        description={isSuperAdmin ? 'Todos los tenants' : me?.tenant_name}
+        actions={
+          <>
+            <Button variant="ghost" onClick={load} title="Recargar" aria-label="Recargar">
+              <RefreshCw size={16} />
+            </Button>
+            <Button icon={UserPlus} onClick={() => setShowCreate(v => !v)}>
+              Nuevo usuario
+            </Button>
+          </>
+        }
+      />
 
       {/* Formulario de creación */}
       {showCreate && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
-          <h2 className="text-sm font-semibold text-gray-200 mb-4">Crear usuario</h2>
+        <Card className="mb-6">
+          <h2 className="text-sm font-semibold text-ink-2 mb-4">Crear usuario</h2>
           <form onSubmit={handleCreate} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Usuario *</label>
-              <input
+            <Field label="Usuario" htmlFor="new-username" required>
+              <Input
+                id="new-username"
                 value={newUsername} onChange={e => setNewUsername(e.target.value)} required
                 placeholder="nombre_usuario"
-                className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg
-                           px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Contraseña * (mín. 8 caracteres)</label>
-              <input
+            </Field>
+            <Field label="Contraseña" htmlFor="new-password" required help="Mínimo 8 caracteres">
+              <Input
+                id="new-password"
                 type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required
                 placeholder="••••••••"
-                className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg
-                           px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Email</label>
-              <input
+            </Field>
+            <Field label="Email" htmlFor="new-email">
+              <Input
+                id="new-email"
                 type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
                 placeholder="correo@ejemplo.com"
-                className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg
-                           px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Rol</label>
-              <select
-                value={newRole} onChange={e => setNewRole(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg
-                           px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
+            </Field>
+            <Field label="Rol" htmlFor="new-role">
+              <Select id="new-role" value={newRole} onChange={e => setNewRole(e.target.value)}>
                 <option value="operator">Operador</option>
                 <option value="admin">Admin</option>
                 {isSuperAdmin && <option value="superadmin">Super Admin</option>}
-              </select>
-            </div>
+              </Select>
+            </Field>
             {isSuperAdmin && (
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Tenant</label>
-                <select
+              <Field label="Tenant" htmlFor="new-tenant">
+                <Select
+                  id="new-tenant"
                   value={newTenantId}
                   onChange={e => setNewTenantId(e.target.value)}
                   required
-                  className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg
-                             px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   {tenants.map((tenant) => (
                     <option key={tenant.id} value={tenant.id}>
                       {tenant.name}
                     </option>
                   ))}
-                </select>
-              </div>
+                </Select>
+              </Field>
             )}
 
             {createError && (
-              <div className="col-span-2 bg-red-950 border border-red-800 text-red-300 rounded-lg px-3 py-2 text-sm">
-                {createError}
+              <div className="col-span-2">
+                <Alert tone="error">{createError}</Alert>
               </div>
             )}
 
             <div className="col-span-2 flex justify-end gap-2">
-              <button
-                type="button" onClick={() => setShowCreate(false)}
-                className="px-4 py-2 text-sm text-gray-400 hover:text-gray-100 transition-colors"
-              >
+              <Button variant="ghost" onClick={() => setShowCreate(false)}>
                 Cancelar
-              </button>
-              <button
-                type="submit" disabled={saving}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50
-                           text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                {saving ? 'Creando...' : 'Crear usuario'}
-              </button>
+              </Button>
+              <Button type="submit" loading={saving}>
+                {saving ? 'Creando…' : 'Crear usuario'}
+              </Button>
             </div>
           </form>
-        </div>
+        </Card>
       )}
 
       {/* Filtros */}
@@ -236,11 +227,12 @@ export default function Users() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            className={cn(
+              'rounded-full px-3 py-1.5 text-xs font-medium',
               filter === f
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:text-gray-100'
-            }`}
+                ? 'bg-accent text-accent-fg'
+                : 'bg-surface-2 text-ink-3 hover:text-ink-1',
+            )}
           >
             {f === 'all' ? 'Todos' : ROLE_LABELS[f]}
           </button>
@@ -248,23 +240,13 @@ export default function Users() {
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="bg-red-950 border border-red-800 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
-          {error}
-        </div>
-      )}
+      {error && <Alert tone="error" className="mb-4">{error}</Alert>}
 
       {/* Tabla */}
       {loading ? (
-        <div className="space-y-2">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-14 bg-gray-900 rounded-xl animate-pulse" />
-          ))}
-        </div>
+        <Skeleton className="h-14" count={4} />
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 text-sm">
-          No hay usuarios para mostrar
-        </div>
+        <EmptyState icon={UsersIcon} title="No hay usuarios para mostrar" />
       ) : (
         <div className="space-y-2">
           {filtered.map(u => {
@@ -272,47 +254,45 @@ export default function Users() {
             return (
               <div
                 key={u.id}
-                className={`flex items-center gap-4 bg-gray-900 border rounded-xl px-4 py-3 transition-opacity ${
-                  u.is_active ? 'border-gray-800' : 'border-gray-800 opacity-50'
-                }`}
+                className={cn(
+                  'flex items-center gap-4 rounded-card border border-line-1 bg-surface-1 px-4 py-3',
+                  !u.is_active && 'opacity-50',
+                )}
               >
                 {/* Avatar */}
-                <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center flex-shrink-0">
                   {u.role === 'superadmin' ? (
-                    <ShieldCheck size={16} className="text-purple-400" />
+                    <ShieldCheck size={16} className="text-accent" />
                   ) : u.role === 'admin' ? (
                     <Shield size={16} className="text-blue-400" />
                   ) : (
-                    <UserIcon size={16} className="text-gray-400" />
+                    <UserIcon size={16} className="text-ink-3" />
                   )}
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-gray-100">{u.username}</span>
-                    {isMe && (
-                      <span className="text-[10px] bg-indigo-900 text-indigo-300 border border-indigo-700
-                                       rounded px-1.5 py-0.5">Tú</span>
-                    )}
-                    <span className={`text-[11px] border rounded px-1.5 py-0.5 ${ROLE_COLORS[u.role]}`}>
+                    <span className="text-sm font-medium text-ink-1">{u.username}</span>
+                    {isMe && <Badge tone="accent">Tú</Badge>}
+                    <Badge tone={ROLE_TONES[u.role] ?? 'neutral'}>
                       {ROLE_LABELS[u.role] ?? u.role}
-                    </span>
+                    </Badge>
                   </div>
                   <div className="flex items-center gap-3 mt-0.5">
-                    {u.email && <span className="text-xs text-gray-500">{u.email}</span>}
+                    {u.email && <span className="text-xs text-ink-4">{u.email}</span>}
                     {isSuperAdmin && (
-                      <span className="text-xs text-gray-600">{u.tenant_name}</span>
+                      <span className="text-xs text-ink-4">{u.tenant_name}</span>
                     )}
                   </div>
                 </div>
 
                 {isSuperAdmin && !isMe && (
-                  <select
+                  <Select
                     value={u.tenant_id}
                     disabled={movingUserId === u.id}
                     onChange={(e) => moveUserToTenant(u, Number(e.target.value))}
-                    className="w-44 flex-shrink-0 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-gray-100 focus:border-indigo-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-44 flex-shrink-0 text-xs"
                     title="Mover usuario a otro tenant"
                   >
                     {tenants.map((tenant) => (
@@ -320,21 +300,18 @@ export default function Users() {
                         {tenant.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
 
                 {/* Toggle activo (no se puede desactivar a sí mismo) */}
                 {!isMe && (
-                  <button
-                    onClick={() => toggleActive(u)}
-                    title={u.is_active ? 'Desactivar usuario' : 'Activar usuario'}
-                    className="flex-shrink-0 text-gray-500 hover:text-gray-100 transition-colors"
-                  >
-                    {u.is_active
-                      ? <ToggleRight size={22} className="text-green-500" />
-                      : <ToggleLeft  size={22} />
-                    }
-                  </button>
+                  <Toggle
+                    size="sm"
+                    checked={u.is_active}
+                    disabled={togglingUserId === u.id}
+                    onChange={() => toggleActive(u)}
+                    label={u.is_active ? `Desactivar ${u.username}` : `Activar ${u.username}`}
+                  />
                 )}
               </div>
             )

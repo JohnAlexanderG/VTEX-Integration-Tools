@@ -47,17 +47,17 @@ function BatchInventoryProgress({ progress, isRunning }: { progress: JobProgress
     <div className={`rounded-lg border px-3 py-3 space-y-3 ${border}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-gray-100 truncate">{title}</div>
-          <div className="mt-0.5 text-[11px] text-gray-400">
+          <div className="text-xs font-semibold text-ink-1 truncate">{title}</div>
+          <div className="mt-0.5 text-[11px] text-ink-3">
             {progress?.part_number ? `Parte ${progress.part_number}` : 'Preparando partes'}
           </div>
         </div>
         {percent !== null && (
-          <span className="text-xs font-medium text-gray-200 tabular-nums">{Math.round(percent)}%</span>
+          <span className="text-xs font-medium text-ink-2 tabular-nums">{Math.round(percent)}%</span>
         )}
       </div>
 
-      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-800">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
         {percent === null ? (
           <div className={`h-full w-1/3 rounded-full ${accent} animate-pulse`} />
         ) : (
@@ -65,16 +65,16 @@ function BatchInventoryProgress({ progress, isRunning }: { progress: JobProgress
         )}
       </div>
 
-      <div className="grid gap-2 text-[11px] text-gray-400 sm:grid-cols-2">
+      <div className="grid gap-2 text-[11px] text-ink-3 sm:grid-cols-2">
         {progress?.batch_id && (
           <div className="min-w-0">
-            <span className="text-gray-500">Batch: </span>
-            <span className="break-all text-gray-300">{progress.batch_id}</span>
+            <span className="text-ink-4">Batch: </span>
+            <span className="break-all text-ink-2">{progress.batch_id}</span>
           </div>
         )}
         {progress?.status_name && (
           <div>
-            <span className="text-gray-500">Status VTEX: </span>
+            <span className="text-ink-4">Status VTEX: </span>
             <span className={isFailed ? 'text-red-300' : isDone ? 'text-green-300' : 'text-blue-300'}>
               {progress.status_name}
             </span>
@@ -82,16 +82,16 @@ function BatchInventoryProgress({ progress, isRunning }: { progress: JobProgress
         )}
         {(progress?.completed_parts !== undefined || progress?.failed_parts !== undefined) && (
           <div>
-            <span className="text-gray-500">Partes: </span>
-            <span className="text-gray-300">
+            <span className="text-ink-4">Partes: </span>
+            <span className="text-ink-2">
               {progress.completed_parts ?? 0} OK / {progress.failed_parts ?? 0} error
             </span>
           </div>
         )}
         {elapsed && (
           <div>
-            <span className="text-gray-500">Polling: </span>
-            <span className="text-gray-300">{elapsed}</span>
+            <span className="text-ink-4">Polling: </span>
+            <span className="text-ink-2">{elapsed}</span>
           </div>
         )}
       </div>
@@ -252,13 +252,13 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
   const deployHasLambdaWarning = deployResult?.ok && !deployResult.lambda_invoked
 
   return (
-    <div ref={cardRef} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+    <div ref={cardRef} className="bg-surface-1 border border-line-1 rounded-card overflow-hidden">
       {/* Header */}
-      <div className="px-4 md:px-5 py-4 border-b border-gray-800">
+      <div className="px-4 md:px-5 py-4 border-b border-line-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-gray-100">{tool.name}</h3>
-            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{tool.description}</p>
+            <h3 className="text-sm font-semibold text-ink-1">{tool.name}</h3>
+            <p className="text-xs text-ink-4 mt-0.5 leading-relaxed">{tool.description}</p>
           </div>
           <div className="flex-shrink-0">
             <StatusBadge status={status} />
@@ -303,7 +303,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
                   : 'Preparando la ejecución y conectando los logs en tiempo real. Esto puede tardar un momento con archivos grandes.'}
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
               <div className="h-full w-1/3 rounded-full bg-blue-400 animate-pulse" />
             </div>
           </div>
@@ -317,7 +317,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
           <button
             onClick={handleRun}
             disabled={isRunning || vtexWarning}
-            className="flex items-center gap-2 px-4 py-2 bg-vtex-pink hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
           >
             {isRunning ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
             {isRunning ? 'Ejecutando…' : 'Ejecutar'}
@@ -337,7 +337,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
                   return !v
                 })
               }}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200"
+              className="flex items-center gap-1 text-xs text-ink-3 hover:text-ink-2"
             >
               {showLogs ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               Logs
@@ -348,9 +348,9 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
       {/* Logs panel */}
       {jobId && showLogs && (
-        <div className="border-t border-gray-800 px-4 md:px-5 py-4 space-y-3">
+        <div className="border-t border-line-1 px-4 md:px-5 py-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-400">Logs</span>
+            <span className="text-xs font-medium text-ink-3">Logs</span>
             {isSubmitting && (
               <span className="text-xs text-blue-400 flex items-center gap-1.5">
                 <Loader size={12} className="animate-spin" />
@@ -391,7 +391,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
           {/* Output files */}
           {outputFiles.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-gray-400 mb-2">Archivos de salida</p>
+              <p className="text-xs font-medium text-ink-3 mb-2">Archivos de salida</p>
                 <div className="flex flex-wrap gap-2">
                   {outputFiles.map((filename) => (
                   <button
@@ -400,7 +400,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
                     onClick={() => {
                       void handleDownload(filename)
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors max-w-full"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-2 hover:bg-surface-3 border border-line-2 rounded-lg text-xs text-ink-2 hover:text-white transition-colors max-w-full"
                   >
                     <Download size={12} className="flex-shrink-0" />
                     <span className="truncate">{filename}</span>
@@ -414,10 +414,10 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
 
       {/* ── Envío de inventario — solo step_44, solo cuando completó ── */}
       {showDeploySection && (
-        <div className="border-t border-gray-700 px-4 md:px-5 py-4 bg-gray-800/40 space-y-3">
+        <div className="border-t border-line-2 px-4 md:px-5 py-4 bg-surface-2/40 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Upload size={13} className="text-blue-400 flex-shrink-0" />
-            <span className="text-xs font-semibold text-gray-200">Envío de inventario</span>
+            <span className="text-xs font-semibold text-ink-2">Envío de inventario</span>
             {ftpStatus && !ftpStatus.ftp_configured && (
               <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 border border-yellow-700/50 rounded">
                 FTP no configurado
@@ -425,9 +425,9 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
             )}
           </div>
 
-          <p className="text-xs text-gray-500 leading-relaxed">
-            Sube el archivo <code className="text-gray-300 bg-gray-700 px-1 rounded">_to_update.ndjson</code> al
-            servidor FTP e invoca <code className="text-gray-300 bg-gray-700 px-1 rounded">{ftpStatus?.lambda_function ?? 'demo-lambda'}</code> automáticamente.
+          <p className="text-xs text-ink-4 leading-relaxed">
+            Sube el archivo <code className="text-ink-2 bg-surface-3 px-1 rounded">_to_update.ndjson</code> al
+            servidor FTP e invoca <code className="text-ink-2 bg-surface-3 px-1 rounded">{ftpStatus?.lambda_function ?? 'demo-lambda'}</code> automáticamente.
           </p>
 
           {/* FTP not configured warning */}
@@ -491,7 +491,7 @@ export default function ToolCard({ tool, vtexConfigured, initialValues = {}, onC
               </div>
               <button
                 onClick={() => { setDeployStatus(null); setDeployResult(null) }}
-                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                className="text-xs text-ink-4 hover:text-ink-2 transition-colors"
               >
                 Volver a enviar
               </button>

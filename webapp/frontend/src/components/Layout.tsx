@@ -36,7 +36,7 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-950 overflow-hidden">
+    <div className="flex h-screen bg-surface-0 overflow-hidden">
 
       {/* Mobile overlay */}
       {sidebarOpen && (
@@ -46,25 +46,25 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 z-30 w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col
+          fixed inset-y-0 left-0 z-30 w-56 flex-shrink-0 bg-surface-1 border-r border-line-1 flex flex-col
           transform transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           md:relative md:translate-x-0 md:z-auto
         `}
       >
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-gray-800 flex items-center justify-between">
+        <div className="px-5 py-5 border-b border-line-1 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded bg-vtex-pink flex items-center justify-center text-white font-bold text-xs">
+            <div className="w-7 h-7 rounded bg-accent flex items-center justify-center text-white font-bold text-xs">
               VX
             </div>
-            <span className="text-sm font-semibold text-gray-100 leading-tight">
+            <span className="text-sm font-semibold text-ink-1 leading-tight">
               Integration<br />Tools
             </span>
           </div>
           <button
             onClick={closeSidebar}
-            className="md:hidden text-gray-400 hover:text-gray-100 p-1 -mr-1"
+            className="md:hidden text-ink-3 hover:text-ink-1 p-1 -mr-1"
             aria-label="Cerrar menú"
           >
             <X size={18} />
@@ -79,7 +79,7 @@ export default function Layout() {
               onClick={closeSidebar}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                  isActive ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-1 hover:bg-surface-2'
                 }`
               }
             >
@@ -94,7 +94,7 @@ export default function Layout() {
               onClick={closeSidebar}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                  isActive ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-1 hover:bg-surface-2'
                 }`
               }
             >
@@ -112,7 +112,7 @@ export default function Layout() {
                   onClick={closeSidebar}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                      isActive ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-1 hover:bg-surface-2'
                     }`
                   }
                 >
@@ -127,7 +127,7 @@ export default function Layout() {
                   onClick={closeSidebar}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                      isActive ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-1 hover:bg-surface-2'
                     }`
                   }
                 >
@@ -142,7 +142,7 @@ export default function Layout() {
                   onClick={closeSidebar}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      isActive ? 'bg-vtex-pink text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                      isActive ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-1 hover:bg-surface-2'
                     }`
                   }
                 >
@@ -155,18 +155,18 @@ export default function Layout() {
         </nav>
 
         {/* Footer: info de usuario + logout */}
-        <div className="px-4 py-4 border-t border-gray-800 space-y-3">
+        <div className="px-4 py-4 border-t border-line-1 space-y-3">
           {/* VTEX status (solo admin) */}
           {isAdmin && (
             <div className="flex items-center gap-2 text-xs">
               {vtexOk === null ? (
-                <AlertCircle size={14} className="text-gray-500" />
+                <AlertCircle size={14} className="text-ink-4" />
               ) : vtexOk ? (
                 <CheckCircle size={14} className="text-green-400" />
               ) : (
                 <XCircle size={14} className="text-red-400" />
               )}
-              <span className={vtexOk ? 'text-green-400' : 'text-gray-500'}>
+              <span className={vtexOk ? 'text-green-400' : 'text-ink-4'}>
                 VTEX {vtexOk ? 'configurado' : 'no configurado'}
               </span>
             </div>
@@ -176,13 +176,13 @@ export default function Layout() {
           {user && (
             <div className="flex items-center justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-medium text-gray-200 truncate">{user.username}</p>
-                <p className="text-[11px] text-gray-500">{roleLabel[user.role] ?? user.role}</p>
+                <p className="text-xs font-medium text-ink-2 truncate">{user.username}</p>
+                <p className="text-[11px] text-ink-4">{roleLabel[user.role] ?? user.role}</p>
               </div>
               <button
                 onClick={handleLogout}
                 title="Cerrar sesión"
-                className="ml-2 p-1.5 text-gray-500 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors"
+                className="ml-2 p-1.5 text-ink-4 hover:text-red-400 hover:bg-surface-2 rounded-lg transition-colors"
               >
                 <LogOut size={15} />
               </button>
@@ -194,19 +194,19 @@ export default function Layout() {
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
-        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800 flex-shrink-0">
+        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-surface-1 border-b border-line-1 flex-shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="text-gray-400 hover:text-gray-100 p-1 -ml-1"
+            className="text-ink-3 hover:text-ink-1 p-1 -ml-1"
             aria-label="Abrir menú"
           >
             <Menu size={20} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-vtex-pink flex items-center justify-center text-white font-bold text-[10px]">
+            <div className="w-6 h-6 rounded bg-accent flex items-center justify-center text-white font-bold text-[10px]">
               VX
             </div>
-            <span className="text-sm font-semibold text-gray-100">Integration Tools</span>
+            <span className="text-sm font-semibold text-ink-1">Integration Tools</span>
           </div>
         </header>
 

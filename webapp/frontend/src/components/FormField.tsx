@@ -14,9 +14,9 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [templateError, setTemplateError] = useState<string | null>(null)
 
-  const labelClass = 'block text-xs font-medium text-gray-400 mb-1'
+  const labelClass = 'block text-xs font-medium text-ink-3 mb-1'
   const inputClass =
-    'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-vtex-pink focus:ring-1 focus:ring-vtex-pink'
+    'w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink-1 placeholder-ink-4 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent'
 
   if (field.type === 'file') {
     const file = value instanceof File ? value : null
@@ -25,7 +25,7 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
         <div className="flex items-center justify-between mb-1">
           <label className={labelClass} style={{ marginBottom: 0 }}>
             {field.label}
-            {field.required && <span className="text-vtex-pink ml-1">*</span>}
+            {field.required && <span className="text-accent ml-1">*</span>}
           </label>
           {toolId && (
             <button
@@ -39,7 +39,7 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
                   ),
                 )
               }}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              className="flex items-center gap-1 text-xs text-ink-4 hover:text-ink-2 transition-colors"
             >
               <Download size={11} />
               Plantilla
@@ -48,7 +48,7 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
         </div>
         <div
           className={`relative border-2 border-dashed rounded-lg p-3 cursor-pointer transition-colors ${
-            file ? 'border-green-600 bg-green-900/10' : 'border-gray-700 hover:border-gray-500'
+            file ? 'border-green-600 bg-green-900/10' : 'border-line-2 hover:border-line-3'
           }`}
           onClick={() => fileInputRef.current?.click()}
         >
@@ -67,7 +67,7 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
               <div className="flex items-center gap-2 min-w-0">
                 <Upload size={14} className="text-green-400 flex-shrink-0" />
                 <span className="text-sm text-green-300 truncate">{file.name}</span>
-                <span className="text-xs text-gray-500 flex-shrink-0">
+                <span className="text-xs text-ink-4 flex-shrink-0">
                   ({(file.size / 1024).toFixed(1)} KB)
                 </span>
               </div>
@@ -78,13 +78,13 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
                   onChange(field.name, null)
                   if (fileInputRef.current) fileInputRef.current.value = ''
                 }}
-                className="text-gray-500 hover:text-red-400 flex-shrink-0 ml-2"
+                className="text-ink-4 hover:text-red-400 flex-shrink-0 ml-2"
               >
                 <X size={14} />
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-gray-500">
+            <div className="flex items-center gap-2 text-ink-4">
               <Upload size={14} />
               <span className="text-sm">
                 {field.accept ? `${field.accept} — ` : ''}Clic o arrastra un archivo
@@ -107,9 +107,9 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
           id={field.name}
           checked={value === true}
           onChange={(e) => onChange(field.name, e.target.checked)}
-          className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-vtex-pink focus:ring-vtex-pink focus:ring-offset-0"
+          className="w-4 h-4 rounded border-line-3 bg-surface-2 text-accent focus:ring-accent focus:ring-offset-0"
         />
-        <label htmlFor={field.name} className="text-sm text-gray-300 cursor-pointer">
+        <label htmlFor={field.name} className="text-sm text-ink-2 cursor-pointer">
           {field.label}
         </label>
       </div>
@@ -155,7 +155,7 @@ export default function FormField({ field, value, onChange, toolId }: Props) {
     <div>
       <label className={labelClass}>
         {field.label}
-        {field.required && <span className="text-vtex-pink ml-1">*</span>}
+        {field.required && <span className="text-accent ml-1">*</span>}
       </label>
       <input
         type="text"
