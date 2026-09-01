@@ -950,7 +950,7 @@ TOOLS: List[Dict[str, Any]] = [
             {"name": "report", "type": "text", "label": "Reporte Markdown",
              "default": "reporte.md", "flag": "--report", "role": "output_file"},
             {"name": "fields", "type": "text",
-             "label": "Campos a exportar (_fields, separados por coma; vacío = set por defecto)",
+             "label": "Campos a exportar (_fields; separados por coma, _all = todos, vacío = set por defecto)",
              "flag": "--fields"},
             {"name": "page_size", "type": "number", "label": "Tamaño de página (_size)",
              "default": 1000, "flag": "--page-size"},
