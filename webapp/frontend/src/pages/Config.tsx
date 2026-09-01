@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { Save, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react'
 import { fetchConfig, updateConfig } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import { Alert, Button, Card, Input, Label, PageHeader, Skeleton } from '../components/ui'
+import { Alert, Button, Card, Input, Label, PageHeader, Skeleton, useToast } from '../components/ui'
 
 const VTEX_FIELDS = [
   {
@@ -131,12 +131,12 @@ function ConfigField({
 export default function Config() {
   const { hasSectionAccess } = useAuth()
   const configAllowed = hasSectionAccess('config')
+  const toast = useToast()
   const [values, setValues] = useState<Record<string, string>>({})
   const [showVtexToken, setShowVtexToken] = useState(false)
   const [showFtpPassword, setShowFtpPassword] = useState(false)
   const [configured, setConfigured] = useState(false)
   const [ftpConfigured, setFtpConfigured] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -156,7 +156,6 @@ export default function Config() {
 
   const handleSave = async () => {
     setError(null)
-    setSaved(false)
     try {
       // Don't save masked token value
       const toSave = { ...values }
@@ -164,13 +163,12 @@ export default function Config() {
         delete toSave['X-VTEX-API-AppToken']
       }
       await updateConfig(toSave)
-      setSaved(true)
+      toast.success('Configuración guardada correctamente.')
       // Refresh to get updated masked values
       const c = await fetchConfig()
       setValues(c.values)
       setConfigured(c.configured)
       setFtpConfigured(Boolean(c.values.FTP_SERVER && c.values.FTP_USER && c.values.FTP_PASSWORD))
-      setTimeout(() => setSaved(false), 3000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al guardar')
     }
@@ -178,7 +176,7 @@ export default function Config() {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 max-w-xl space-y-4">
+      <div className="p-4 md:p-6 max-w-3xl space-y-4">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-64" />
       </div>
@@ -190,7 +188,7 @@ export default function Config() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-xl">
+    <div className="p-4 md:p-6 max-w-3xl">
       <PageHeader
         title="Configuración"
         description={
@@ -234,15 +232,13 @@ export default function Config() {
         </div>
       </div>
 
-      <Card className="space-y-5">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-1">VTEX</h2>
-            <p className="text-xs text-ink-4 mt-1">
-              Credenciales principales para consultas, mapeos y operaciones sobre VTEX.
-            </p>
-          </div>
+      <Card className="mb-5 md:mb-6">
+        <h2 className="text-sm font-semibold text-ink-1">VTEX</h2>
+        <p className="text-xs text-ink-4 mt-1 mb-4">
+          Credenciales principales para consultas, mapeos y operaciones sobre VTEX.
+        </p>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {VTEX_FIELDS.map((field) => (
             <ConfigField
               key={field.key}
@@ -254,15 +250,15 @@ export default function Config() {
             />
           ))}
         </div>
+      </Card>
 
-        <div className="border-t border-line-1 pt-5 space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-1">Envío de inventario</h2>
-            <p className="text-xs text-ink-4 mt-1">
-              Configuración usada para subir el NDJSON por FTP e invocar la Lambda posterior.
-            </p>
-          </div>
+      <Card className="mb-5 md:mb-6">
+        <h2 className="text-sm font-semibold text-ink-1">FTP &amp; Lambda de inventario</h2>
+        <p className="text-xs text-ink-4 mt-1 mb-4">
+          Configuración usada para subir el NDJSON por FTP e invocar la Lambda posterior.
+        </p>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {INVENTORY_DELIVERY_FIELDS.map((field) => (
             <ConfigField
               key={field.key}
@@ -274,15 +270,13 @@ export default function Config() {
             />
           ))}
         </div>
-
-        {error && <Alert tone="error">{error}</Alert>}
-
-        {saved && <Alert tone="success">Configuración guardada correctamente.</Alert>}
-
-        <Button icon={Save} onClick={handleSave}>
-          Guardar
-        </Button>
       </Card>
+
+      {error && <Alert tone="error" className="mb-4">{error}</Alert>}
+
+      <Button icon={Save} onClick={handleSave}>
+        Guardar cambios
+      </Button>
 
       {/* Info */}
       <div className="mt-5 md:mt-6 bg-surface-1/50 border border-line-1 rounded-control p-4 text-xs text-ink-4 space-y-1">
