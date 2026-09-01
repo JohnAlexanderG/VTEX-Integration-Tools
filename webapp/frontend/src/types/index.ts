@@ -23,6 +23,8 @@ export interface Tool {
   inputs: ToolInput[]
   enabled?: boolean
   blocked_reason?: string | null
+  /** Si la herramienta tiene un README asociado en el repo. */
+  has_readme?: boolean
 }
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'

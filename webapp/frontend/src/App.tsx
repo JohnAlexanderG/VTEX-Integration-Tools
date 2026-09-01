@@ -4,7 +4,8 @@ import { ToastProvider } from './components/ui'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Tools from './pages/Tools'
+import ToolsCatalog from './pages/ToolsCatalog'
+import ToolDetail from './pages/ToolDetail'
 import JobHistory from './pages/JobHistory'
 import Config from './pages/Config'
 import Users from './pages/Users'
@@ -32,7 +33,8 @@ export default function App() {
             >
               <Route index element={<Navigate to="/tools" replace />} />
               <Route path="pipeline" element={<Navigate to="/tools" replace />} />
-              <Route path="tools"    element={<Tools />} />
+              <Route path="tools"          element={<ToolsCatalog />} />
+              <Route path="tools/:toolId"  element={<ToolDetail />} />
               <Route path="jobs"     element={<JobHistory />} />
 
               {/* Solo admin y superadmin */}

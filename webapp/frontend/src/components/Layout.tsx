@@ -1,26 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { Wrench, History, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
-import { fetchConfig } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import { useVtexStatus } from '../hooks/useVtexStatus'
 
 export default function Layout() {
-  const [vtexOk, setVtexOk]         = useState<boolean | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // /api/vtex-status lo puede leer cualquier rol; /api/config es admin-only y
+  // dejaba a los operadores sin saber si VTEX estaba configurado.
+  const { configured: vtexOk } = useVtexStatus()
   const { user, logout, isAdmin, isSuperAdmin, hasSectionAccess } = useAuth()
   const navigate                      = useNavigate()
   const hasToolsAccess = hasSectionAccess('tools')
   const hasHistoryAccess = hasSectionAccess('history')
   const hasConfigAccess = hasSectionAccess('config')
   const hasUsersAccess = hasSectionAccess('users')
-
-  useEffect(() => {
-    if (isAdmin) {
-      fetchConfig()
-        .then((c) => setVtexOk(c.configured))
-        .catch(() => setVtexOk(false))
-    }
-  }, [isAdmin])
 
   const closeSidebar = () => setSidebarOpen(false)
 
@@ -156,8 +150,8 @@ export default function Layout() {
 
         {/* Footer: info de usuario + logout */}
         <div className="px-4 py-4 border-t border-line-1 space-y-3">
-          {/* VTEX status (solo admin) */}
-          {isAdmin && (
+          {/* Estado de VTEX — visible para todos los roles */}
+          {vtexOk !== null && (
             <div className="flex items-center gap-2 text-xs">
               {vtexOk === null ? (
                 <AlertCircle size={14} className="text-ink-4" />

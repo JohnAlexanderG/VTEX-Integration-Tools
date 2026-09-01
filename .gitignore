@@ -32,6 +32,12 @@ Thumbs.db
 !.env.example
 !webapp/backend/templates/**
 
+# Config de build del frontend: el deploy corre `npm install && npm run build`
+# en el servidor, así que estos archivos tienen que viajar en el repo.
+!webapp/frontend/package.json
+!webapp/frontend/package-lock.json
+!webapp/frontend/tsconfig*.json
+
 # Data files (spreadsheets, exports, binaries)
 *.xls
 *.xlsx
