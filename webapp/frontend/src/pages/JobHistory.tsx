@@ -1,20 +1,28 @@
-import { useEffect, useState } from 'react'
-import { Download, History, RefreshCw, Trash2 } from 'lucide-react'
-import type { Job } from '../types'
+import { useEffect, useMemo, useState } from 'react'
+import { Download, History, RefreshCw, Search, Trash2 } from 'lucide-react'
+import type { Job, JobStatus } from '../types'
 import { fetchJobs, downloadJobFile, deleteJob, reconcileJobs } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/StatusBadge'
 import {
   Alert,
-  Badge,
   Button,
-  Card,
   ConfirmDialog,
   EmptyState,
+  Input,
   PageHeader,
+  Select,
   Skeleton,
   useToast,
 } from '../components/ui'
+
+const STATUS_OPTIONS: { value: JobStatus | 'all'; label: string }[] = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'running', label: 'Ejecutando' },
+  { value: 'completed', label: 'Completado' },
+  { value: 'failed', label: 'Con errores' },
+]
 
 function formatDateTime(value: string | null): string {
   if (!value) return '—'
@@ -34,6 +42,8 @@ export default function JobHistory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [jobToDelete, setJobToDelete] = useState<Job | null>(null)
   const [reconciling, setReconciling] = useState(false)
@@ -50,6 +60,15 @@ export default function JobHistory() {
   useEffect(() => {
     load()
   }, [])
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return jobs.filter((job) => {
+      const matchesStatus = statusFilter === 'all' || job.status === statusFilter
+      const matchesSearch = term === '' || job.tool_name.toLowerCase().includes(term)
+      return matchesStatus && matchesSearch
+    })
+  }, [jobs, search, statusFilter])
 
   const handleDownload = async (jobId: string, filename: string) => {
     try {
@@ -126,67 +145,109 @@ export default function JobHistory() {
       {error && <Alert tone="error" className="mb-4 max-w-3xl">{error}</Alert>}
       {notice && !error && <Alert tone="success" className="mb-4 max-w-3xl">{notice}</Alert>}
 
-      <div className="space-y-3 max-w-3xl">
-        {loading && <Skeleton className="h-24" count={3} />}
+      {!loading && jobs.length > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center mb-4">
+          <div className="w-full sm:w-72">
+            <Input
+              type="text"
+              leftIcon={Search}
+              placeholder="Buscar por herramienta…"
+              aria-label="Buscar por herramienta"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="w-full sm:w-48">
+            <Select
+              aria-label="Filtrar por estado"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as JobStatus | 'all')}
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+      )}
 
-        {!loading && jobs.length === 0 && !error && (
-          <EmptyState
-            icon={History}
-            title="No hay jobs registrados"
-            description="Cuando ejecutes una herramienta, su corrida aparece acá con sus archivos de salida."
-          />
-        )}
+      {loading && <Skeleton className="h-10" count={4} />}
 
-        {!loading &&
-          jobs.map((job) => (
-            <Card key={job.id} padded={false} className="overflow-hidden">
-              <div className="px-4 md:px-5 py-4 border-b border-line-1">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-ink-1">{job.tool_name}</span>
-                      <StatusBadge status={job.status} />
-                      {isSuperAdmin && <Badge>Tenant {job.tenant_id}</Badge>}
+      {!loading && jobs.length === 0 && !error && (
+        <EmptyState
+          icon={History}
+          title="No hay jobs registrados"
+          description="Cuando ejecutes una herramienta, su corrida aparece acá con sus archivos de salida."
+        />
+      )}
+
+      {!loading && jobs.length > 0 && filtered.length === 0 && (
+        <EmptyState
+          icon={Search}
+          title="Sin resultados"
+          description="Ningún job coincide con la búsqueda o el filtro aplicado."
+        />
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <div className="overflow-x-auto rounded-card border border-line-1">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line-1">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
+                  Herramienta
+                </th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
+                  Estado
+                </th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-4">
+                  Fecha
+                </th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((job) => (
+                <tr key={job.id} className="border-b border-line-1 last:border-b-0 hover:bg-surface-1">
+                  <td className="px-4 py-3 font-medium text-ink-1">{job.tool_name}</td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={job.status} />
+                  </td>
+                  <td className="px-4 py-3 text-ink-4">{formatDateTime(job.created_at)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      {job.output_files.map((filename) => (
+                        <button
+                          key={filename}
+                          onClick={() => void handleDownload(job.id, filename)}
+                          title={`Descargar ${filename}`}
+                          aria-label={`Descargar ${filename}`}
+                          className="rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-ink-1"
+                        >
+                          <Download size={14} />
+                        </button>
+                      ))}
+                      {isAdmin && (
+                        <button
+                          onClick={() => setJobToDelete(job)}
+                          disabled={deletingId === job.id}
+                          title="Eliminar job"
+                          aria-label={`Eliminar job ${job.tool_name}`}
+                          className="rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
-                    <p className="text-xs text-ink-4 mt-0.5">{formatDateTime(job.created_at)}</p>
-                  </div>
-
-                  {isAdmin && (
-                    <button
-                      onClick={() => setJobToDelete(job)}
-                      disabled={deletingId === job.id}
-                      title="Eliminar job"
-                      aria-label={`Eliminar job ${job.tool_name}`}
-                      className="flex-shrink-0 rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {job.output_files.length > 0 && (
-                <div className="px-4 md:px-5 py-4">
-                  <p className="text-xs font-medium text-ink-3 mb-2">Archivos de salida</p>
-                  <div className="flex flex-wrap gap-2">
-                    {job.output_files.map((filename) => (
-                      <Button
-                        key={filename}
-                        variant="secondary"
-                        size="sm"
-                        className="max-w-full"
-                        onClick={() => void handleDownload(job.id, filename)}
-                      >
-                        <Download size={12} className="flex-shrink-0" />
-                        <span className="truncate">{filename}</span>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </Card>
-          ))}
-      </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <ConfirmDialog
         open={jobToDelete !== null}

@@ -288,19 +288,21 @@ export default function Users() {
                 </div>
 
                 {isSuperAdmin && !isMe && (
-                  <Select
-                    value={u.tenant_id}
-                    disabled={movingUserId === u.id}
-                    onChange={(e) => moveUserToTenant(u, Number(e.target.value))}
-                    className="w-44 flex-shrink-0 text-xs"
-                    title="Mover usuario a otro tenant"
-                  >
-                    {tenants.map((tenant) => (
-                      <option key={tenant.id} value={tenant.id}>
-                        {tenant.name}
-                      </option>
-                    ))}
-                  </Select>
+                  <div className="w-44 flex-shrink-0">
+                    <Select
+                      value={u.tenant_id}
+                      disabled={movingUserId === u.id}
+                      onChange={(e) => moveUserToTenant(u, Number(e.target.value))}
+                      className="text-xs"
+                      title="Mover usuario a otro tenant"
+                    >
+                      {tenants.map((tenant) => (
+                        <option key={tenant.id} value={tenant.id}>
+                          {tenant.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 )}
 
                 {/* Toggle activo (no se puede desactivar a sí mismo) */}
