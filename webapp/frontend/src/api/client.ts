@@ -42,10 +42,75 @@ export async function fetchTools(): Promise<Tool[]> {
   return data.tools
 }
 
+/** Error con el status HTTP, para distinguir un 404 (sin acceso / no existe)
+ *  de un fallo de red. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+/** Una sola herramienta. El backend responde 404 tanto si no existe como si
+ *  el tenant no tiene permiso, que es exactamente el gate que necesita la
+ *  ruta por herramienta. */
+export async function fetchTool(toolId: string): Promise<Tool> {
+  const res = await apiFetch(`${BASE}/tools/${toolId}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'No se pudo cargar la herramienta' }))
+    throw new ApiError(err.error || 'No se pudo cargar la herramienta', res.status)
+  }
+  return res.json()
+}
+
+/** Los README son estáticos por deploy, así que alcanza con cachearlos en
+ *  memoria: ir y volver del catálogo no vuelve a pedirlos. */
+const readmeCache = new Map<string, string | null>()
+
+export async function fetchToolReadme(toolId: string): Promise<string | null> {
+  const cached = readmeCache.get(toolId)
+  if (cached !== undefined) return cached
+
+  const res = await apiFetch(`${BASE}/tools/${toolId}/readme`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'No se pudo cargar la documentación' }))
+    throw new ApiError(err.error || 'No se pudo cargar la documentación', res.status)
+  }
+  const data = await res.json()
+  const readme: string | null = data.readme ?? null
+  readmeCache.set(toolId, readme)
+  return readme
+}
+
+/** Descarga la plantilla de un campo de archivo. Usa apiFetch porque el
+ *  endpoint exige Authorization: un <a href> crudo recibe 401. */
+export async function downloadTemplate(toolId: string, inputName: string): Promise<void> {
+  const res = await apiFetch(`${BASE}/tools/${toolId}/template/${encodeURIComponent(inputName)}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'No se pudo descargar la plantilla' }))
+    throw new Error(err.error || 'No se pudo descargar la plantilla')
+  }
+
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
+  const filename = match ? decodeURIComponent(match[1]) : `${toolId}_${inputName}`
+
+  const blob = await res.blob()
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
-export async function fetchJobs(): Promise<Job[]> {
-  const res = await apiFetch(`${BASE}/jobs`)
+export async function fetchJobs(toolId?: string): Promise<Job[]> {
+  const qs = toolId ? `?tool_id=${encodeURIComponent(toolId)}` : ''
+  const res = await apiFetch(`${BASE}/jobs${qs}`)
   if (!res.ok) throw new Error('Failed to fetch jobs')
   const data = await res.json()
   return data.jobs
@@ -101,6 +166,14 @@ export async function runTool(
 export async function fetchConfig(): Promise<Config> {
   const res = await apiFetch(`${BASE}/config`)
   if (!res.ok) throw new Error('Failed to fetch config')
+  return res.json()
+}
+
+/** Estado de credenciales VTEX, legible por cualquier rol (a diferencia de
+ *  /api/config, que es admin-only y responde 403 a un operador). */
+export async function fetchVtexStatus(): Promise<{ configured: boolean }> {
+  const res = await apiFetch(`${BASE}/vtex-status`)
+  if (!res.ok) throw new Error('Failed to fetch VTEX status')
   return res.json()
 }
 
