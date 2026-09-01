@@ -211,6 +211,7 @@ export default function JobHistory() {
                   Fecha
                 </th>
                 <th className="px-4 py-2.5" />
+                <th className="px-4 py-2.5" />
               </tr>
             </thead>
             <tbody>
@@ -225,13 +226,13 @@ export default function JobHistory() {
                   </td>
                   <td className="px-4 py-3 text-ink-4">{formatDateTime(job.created_at)}</td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5 max-w-[260px] ml-auto">
+                    <div className="flex flex-col items-start gap-1.5">
                       {job.output_files.map((filename) => (
                         <Button
                           key={filename}
                           variant="secondary"
                           size="sm"
-                          className="max-w-full"
+                          className="max-w-[220px]"
                           onClick={() => void handleDownload(job.id, filename)}
                           title={filename}
                         >
@@ -239,18 +240,20 @@ export default function JobHistory() {
                           <span className="truncate">{filename}</span>
                         </Button>
                       ))}
-                      {isAdmin && (
-                        <button
-                          onClick={() => setJobToDelete(job)}
-                          disabled={deletingId === job.id}
-                          title="Eliminar job"
-                          aria-label={`Eliminar job ${job.tool_name}`}
-                          className="flex-shrink-0 rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {isAdmin && (
+                      <button
+                        onClick={() => setJobToDelete(job)}
+                        disabled={deletingId === job.id}
+                        title="Eliminar job"
+                        aria-label={`Eliminar job ${job.tool_name}`}
+                        className="rounded-control p-1.5 text-ink-4 hover:bg-surface-2 hover:text-red-400 disabled:opacity-40"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
