@@ -1,5 +1,13 @@
 # VTEX Product & SKU Deleter
 
+## ⚠️ Estado: DESHABILITADA (no funcional)
+
+Confirmado el 2026-09-22 en la cuenta Homesentry: una consulta `OPTIONS` directa contra `https://{account}.vtexcommercestable.com.br/api/catalog/pvt/stockkeepingunit/{skuId}` devolvió `405 Method Not Allowed` con el header `Allow: GET, PUT`. **VTEX no acepta el método `DELETE` en ese endpoint para esta cuenta**, a pesar de que VTEX Soporte lo indicó como la vía recomendada para el borrado masivo.
+
+El script se niega a ejecutar (`TOOL_DISABLED = True` al inicio de `vtex_product_sku_deleter.py`) y la herramienta aparece marcada como no funcional en la webapp — se deja accesible/documentada para no perder el trabajo y por si VTEX confirma en el futuro que el método está habilitado (para esta cuenta u otra), en cuyo caso basta con poner `TOOL_DISABLED = False`.
+
+Mientras tanto, la alternativa reversible sigue disponible: desactivar los SKUs (`IsActive=false`, que usa `PUT`, sí permitido) con `20_vtex_update_sku_from_csv/vtex_update_sku_from_csv.py`.
+
 ## Descripción
 
 Elimina masivamente SKUs y Productos completos en VTEX, en dos fases estrictas y en el orden que exige la propia API de VTEX:
