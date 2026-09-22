@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 """
+*** DESHABILITADA - NO FUNCIONAL ***
+
+Se confirmo (2026-09-22, cuenta Homesentry) mediante una consulta OPTIONS directa
+a VTEX que DELETE /api/catalog/pvt/stockkeepingunit/{skuId} responde HTTP 405
+Method Not Allowed (header "Allow: GET, PUT"). VTEX no permite el borrado por esta
+via en esa cuenta, a pesar de que VTEX Soporte indico este endpoint como el
+metodo recomendado. El script se niega a ejecutar (ver TOOL_DISABLED mas abajo)
+hasta que se confirme con VTEX que el metodo DELETE esta habilitado para la
+cuenta en uso. Ver 75_vtex_product_sku_deleter/README.md para el detalle.
+
 Elimina masivamente SKUs y Productos completos en VTEX (borrado en dos fases).
 
 Fase 1:
@@ -70,6 +80,19 @@ SUCCESS_STATUSES = (200, 202, 204)
 ALREADY_GONE_STATUS = 404
 RETRIABLE_STATUSES = (0, 408, 409, 425, 429, 500, 502, 503, 504)
 MAX_ATTEMPTS = 5
+
+# Deshabilitada tras confirmar en produccion (cuenta Homesentry, 2026-09-22) que
+# VTEX responde HTTP 405 (Allow: GET, PUT) para DELETE .../stockkeepingunit/{skuId}.
+# Cambiar a False unicamente despues de confirmar con VTEX que DELETE esta
+# habilitado para la cuenta que se va a usar.
+TOOL_DISABLED = True
+TOOL_DISABLED_REASON = (
+    "Herramienta deshabilitada: se confirmo mediante una consulta OPTIONS directa a VTEX que "
+    "DELETE /api/catalog/pvt/stockkeepingunit/{skuId} responde HTTP 405 Method Not Allowed "
+    "(Allow: GET, PUT) en la cuenta probada. VTEX no permite el borrado por esta via a pesar de "
+    "lo indicado por VTEX Soporte. No usar hasta confirmar con VTEX que el metodo DELETE esta "
+    "habilitado para la cuenta en uso. Ver README.md de este directorio para el detalle."
+)
 
 
 @dataclass
@@ -903,6 +926,9 @@ Ejemplos:
 
 def main():
     args = parse_args()
+
+    if TOOL_DISABLED:
+        die(TOOL_DISABLED_REASON, code=3)
 
     if not args.dry_run and not args.confirm_delete:
         die(

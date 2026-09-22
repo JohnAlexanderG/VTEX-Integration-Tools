@@ -25,6 +25,9 @@ export interface Tool {
   blocked_reason?: string | null
   /** Si la herramienta tiene un README asociado en el repo. */
   has_readme?: boolean
+  /** true = confirmado no funcional (ej. VTEX devuelve 405); se deja visible pero bloqueada. */
+  disabled?: boolean
+  disabled_reason?: string | null
 }
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'

@@ -669,6 +669,14 @@ TOOLS: List[Dict[str, Any]] = [
         "category": "tools",
         "script": "75_vtex_product_sku_deleter/vtex_product_sku_deleter.py",
         "requires_vtex": True,
+        "disabled": True,
+        "disabled_reason": (
+            "No funcional: se confirmo mediante una consulta OPTIONS directa a VTEX que "
+            "DELETE /api/catalog/pvt/stockkeepingunit/{skuId} responde HTTP 405 Method Not "
+            "Allowed (Allow: GET, PUT) en la cuenta probada. VTEX no permite el borrado por "
+            "esta via a pesar de lo indicado por VTEX Soporte. No usar hasta confirmar con "
+            "VTEX que el metodo DELETE esta habilitado para la cuenta."
+        ),
         "inputs": [
             {"name": "input_csv", "type": "file", "label": "CSV con columnas SkuId y ProductId", "required": True,
              "accept": ".csv", "position": 0, "role": "input_file"},
@@ -2327,6 +2335,12 @@ async def run_tool(
     tool = TOOLS_BY_ID.get(tool_id)
     if not tool:
         return JSONResponse(status_code=404, content={"error": "Tool not found"})
+
+    if tool.get("disabled"):
+        return JSONResponse(
+            status_code=409,
+            content={"error": tool.get("disabled_reason") or "Esta herramienta esta deshabilitada."},
+        )
 
     if current_user.role != UserRole.superadmin:
         permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)

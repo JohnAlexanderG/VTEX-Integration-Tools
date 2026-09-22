@@ -72,9 +72,15 @@ export default function ToolRunPanel({
     status === 'pending' ||
     (jobId !== null && status === 'running' && connectionState === 'connecting')
   const vtexWarning = tool.requires_vtex && vtexConfigured === false
+  const toolDisabled = tool.disabled === true
 
   const handleRun = async () => {
     setError(null)
+
+    if (toolDisabled) {
+      setError(tool.disabled_reason || 'Esta herramienta esta deshabilitada.')
+      return
+    }
 
     const validationError = validate()
     if (validationError) {
@@ -124,6 +130,12 @@ export default function ToolRunPanel({
 
   return (
     <div ref={panelRef} className="space-y-4">
+      {toolDisabled && (
+        <Alert tone="error" title="Herramienta no funcional">
+          {tool.disabled_reason || 'Esta herramienta esta deshabilitada.'}
+        </Alert>
+      )}
+
       {vtexWarning && (
         <Alert tone="warning">Esta herramienta requiere credenciales VTEX configuradas.</Alert>
       )}
@@ -164,7 +176,7 @@ export default function ToolRunPanel({
         <Button
           icon={isRunning ? undefined : Play}
           loading={isRunning}
-          disabled={vtexWarning}
+          disabled={vtexWarning || toolDisabled}
           onClick={() => void handleRun()}
         >
           {isRunning ? 'Ejecutando…' : 'Ejecutar'}

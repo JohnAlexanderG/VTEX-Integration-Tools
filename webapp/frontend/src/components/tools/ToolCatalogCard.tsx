@@ -31,8 +31,9 @@ export default function ToolCatalogCard({ tool, activeJob }: Props) {
         <p className="mt-3 text-sm font-semibold text-ink-1">{tool.shortName}</p>
         <p className="mt-1 text-xs leading-relaxed text-ink-4">{tool.description}</p>
 
-        {(isRunning || tool.has_readme) && (
+        {(isRunning || tool.has_readme || tool.disabled) && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {tool.disabled && <Badge tone="danger">No funcional</Badge>}
             {isRunning && (
               <Badge tone="info" pulse>
                 Ejecutando

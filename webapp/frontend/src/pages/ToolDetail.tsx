@@ -99,6 +99,7 @@ export default function ToolDetail() {
         title={tool.shortName}
         badge={
           <>
+            {tool.disabled && <Badge tone="danger">No funcional</Badge>}
             <Badge tone={tool.requires_vtex ? 'info' : 'neutral'}>
               {tool.requires_vtex ? 'API VTEX' : 'Utilidad'}
             </Badge>
