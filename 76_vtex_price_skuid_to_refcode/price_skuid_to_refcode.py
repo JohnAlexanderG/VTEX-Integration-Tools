@@ -19,6 +19,8 @@ Entradas:
 
 Salidas:
     - {prefix}_erp_precios.csv:     codigo producto,Costo,Precio Venta,% IVA,Precio Lista o Precio Promocion
+    - {prefix}_actualizar_precios.json: Entrada para "Actualizar precios" (22_vtex_price_updater)
+                                    [{_SkuId, _SKUReferenceCode, costPrice, basePrice}]
     - {prefix}_sin_refcode.csv:     Precios cuyo SKU ID no tiene código de referencia
     - {prefix}_skus_sin_precio.csv: SKUs del catálogo sin precio
     - {prefix}_errores.csv:         Filas con Error Code / Error Message (solo si existen)
@@ -27,6 +29,7 @@ Salidas:
 
 import argparse
 import csv
+import json
 import os
 import sys
 from collections import defaultdict
@@ -115,6 +118,17 @@ def format_price(value):
     return str(int(number)) if number == int(number) else str(number)
 
 
+def price_number(value):
+    """Como format_price pero numérico: int si es entero, float si tiene decimales, None si vacío."""
+    if is_blank(value):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(number) if number == int(number) else number
+
+
 def is_blank(value):
     return value is None or str(value).strip() == ''
 
@@ -142,6 +156,8 @@ def generate_report(report_file, stats, files, duplicates):
         f"| Filas de precios leídas | {stats['prices_total']:,} |",
         f"| SKUs en catálogo | {stats['skus_total']:,} |",
         f"| ✅ Precios convertidos (formato ERP) | {stats['matched']:,} |",
+        f"| 📦 Items JSON para Actualizar precios | {stats['updater_items']:,} |",
+        f"| ⚠️ Omitidos del JSON (sin Base Price) | {stats['updater_skipped_no_base']:,} |",
         f"| ⚠️ Precios sin código de referencia | {stats['without_refcode']:,} |",
         f"| ❌ Filas con error en export | {stats['errors']:,} |",
         f"| ⚠️ SKU ID duplicados en precios | {stats['duplicate_price_ids']:,} |",
@@ -183,7 +199,8 @@ def main():
         if sku_id is not None:
             sku_map[sku_id] = sku
 
-    erp_rows, without_refcode, error_rows = [], [], []
+    erp_rows, without_refcode, error_rows, updater_items = [], [], [], []
+    updater_skipped_no_base = 0
     refcode_to_ids = defaultdict(list)
     seen_ids, duplicate_price_ids = set(), 0
 
@@ -209,6 +226,17 @@ def main():
         erp_rows.append([refcode, format_price(price['Cost Price']), format_price(price['Base Price']),
                          '', format_price(price['List Price'])])
 
+        base_price = price_number(price['Base Price'])
+        if base_price is None:
+            updater_skipped_no_base += 1
+            continue
+        item = {'_SkuId': sku_id, '_SKUReferenceCode': refcode}
+        cost_price = price_number(price['Cost Price'])
+        if cost_price is not None:
+            item['costPrice'] = cost_price
+        item['basePrice'] = base_price
+        updater_items.append(item)
+
     skus_without_price = [
         [sku_id, sku.get('SKU reference code') or '', sku.get('Product ID') or '', sku.get('SKU name') or '']
         for sku_id, sku in sku_map.items() if sku_id not in seen_ids
@@ -221,6 +249,8 @@ def main():
         'prices_total': len(prices),
         'skus_total': len(sku_map),
         'matched': len(erp_rows),
+        'updater_items': len(updater_items),
+        'updater_skipped_no_base': updater_skipped_no_base,
         'without_refcode': len(without_refcode),
         'errors': len(error_rows),
         'duplicate_price_ids': duplicate_price_ids,
@@ -229,6 +259,9 @@ def main():
 
     print("\n📊 Resultados:")
     print(f"   ✅ Precios convertidos:          {stats['matched']:,}")
+    print(f"   📦 Items JSON Actualizar precios: {stats['updater_items']:,}")
+    if updater_skipped_no_base:
+        print(f"   ⚠️  Omitidos del JSON (sin Base Price): {updater_skipped_no_base:,}")
     print(f"   ⚠️  Sin código de referencia:     {stats['without_refcode']:,}")
     print(f"   ❌ Filas con error en export:    {stats['errors']:,}")
     print(f"   ⚠️  SKU ID duplicados en precios: {stats['duplicate_price_ids']:,}")
@@ -250,6 +283,11 @@ def main():
     erp_file = f"{prefix}_erp_precios.csv"
     write_csv(erp_file, ERP_HEADER, erp_rows)
     files.append(erp_file)
+
+    updater_file = f"{prefix}_actualizar_precios.json"
+    with open(updater_file, 'w', encoding='utf-8') as f:
+        json.dump(updater_items, f, indent=4, ensure_ascii=False)
+    files.append(updater_file)
 
     without_file = f"{prefix}_sin_refcode.csv"
     write_csv(without_file, PRICE_COLUMNS, without_refcode)

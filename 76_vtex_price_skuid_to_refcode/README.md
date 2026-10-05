@@ -31,6 +31,7 @@ python3 76_vtex_price_skuid_to_refcode/price_skuid_to_refcode.py \
 | Archivo | Contenido |
 |---|---|
 | `{prefix}_erp_precios.csv` | `codigo producto,Costo,Precio Venta,% IVA,Precio Lista o Precio Promocion` (`% IVA` vacío) |
+| `{prefix}_actualizar_precios.json` | `[{"_SkuId", "_SKUReferenceCode", "costPrice", "basePrice"}]` — entrada directa para **"Actualizar precios"** (`22_vtex_price_updater`). Omite `costPrice` si está vacío y excluye filas sin `Base Price` |
 | `{prefix}_sin_refcode.csv` | Precios cuyo SKU ID no tiene código de referencia |
 | `{prefix}_skus_sin_precio.csv` | SKUs del catálogo sin precio |
 | `{prefix}_errores.csv` | Filas con `Error Code`/`Error Message` (solo si existen) |
