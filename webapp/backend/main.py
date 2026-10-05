@@ -721,7 +721,7 @@ TOOLS: List[Dict[str, Any]] = [
         "id": "tool_price_skuid_to_refcode",
         "name": "Precios VTEX: SKU ID → Código de referencia (formato ERP)",
         "shortName": "Precios SKU ID → RefCode",
-        "description": "Convierte la exportación de precios de VTEX (SKU ID, Cost/Base/List Price) al CSV de precios en formato ERP (codigo producto, Costo, Precio Venta, % IVA, Precio Lista) cruzando con el export products-and-skus (requiere columna SKU reference code). Omite automáticamente la fila 'Learn how to fill out this spreadsheet here'.",
+        "description": "Convierte la exportación de precios de VTEX (SKU ID, Cost/Base/List Price) al CSV de precios en formato ERP (codigo producto, Costo, Precio Venta, % IVA, Precio Lista) cruzando con el export products-and-skus (requiere columna SKU reference code). También genera {prefix}_actualizar_precios.json listo para la herramienta 'Actualizar precios'. Omite automáticamente la fila 'Learn how to fill out this spreadsheet here'.",
         "category": "tools",
         "script": "76_vtex_price_skuid_to_refcode/price_skuid_to_refcode.py",
         "readme": "76_vtex_price_skuid_to_refcode/README.md",
