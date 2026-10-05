@@ -108,6 +108,9 @@ python3 29_vtex_price_fetcher/vtex_price_fetcher.py input.csv --column SKU --del
 python3 29_vtex_price_fetcher/vtex_price_deleter.py price_results_20260304_143000.csv --dry-run  # Test deletion
 python3 29_vtex_price_fetcher/vtex_price_deleter.py price_results_20260304_143000.csv            # Delete prices
 python3 29_vtex_price_fetcher/vtex_price_deleter.py input.csv --delay 1.0 --column referenceCode
+
+# Price export SKU ID -> reference code (ERP price CSV format) (76)
+python3 76_vtex_price_skuid_to_refcode/price_skuid_to_refcode.py precios_vtex.xlsx products-and-skus.xlsx output_prefix [--dry-run]
 ```
 
 ### Utility Commands
