@@ -554,6 +554,23 @@ TOOLS: List[Dict[str, Any]] = [
         ],
     },
     {
+        "id": "tool_xlsx_to_xls",
+        "name": "Convertir XLSX a XLS",
+        "shortName": "XLSX → XLS",
+        "description": "Convierte archivos .xlsx a Excel clásico (.xls) conservando hojas y tipos de celda. Igual que la exportación de inventario de VTEX, las hojas de más de 65536 filas se reparten en Sheet1…SheetN con la cabecera repetida.",
+        "category": "tools",
+        "script": "01_csv_to_json/xlsx_to_xls.py",
+        "requires_vtex": False,
+        "inputs": [
+            {"name": "input_file", "type": "file", "label": "Archivo XLSX", "required": True,
+             "accept": ".xlsx", "position": 0, "role": "input_file"},
+            {"name": "output_file", "type": "text", "label": "Archivo XLS de salida", "default": "output.xls",
+             "position": 1, "role": "output_file"},
+            {"name": "sheet", "type": "text", "label": "Hoja (vacío = todas)", "default": "",
+             "flag": "--sheet"},
+        ],
+    },
+    {
         "id": "tool_status_filter",
         "name": "Filtrar por estado",
         "shortName": "Filtrar estado",
