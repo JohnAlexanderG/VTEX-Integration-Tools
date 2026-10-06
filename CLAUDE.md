@@ -117,6 +117,7 @@ python3 76_vtex_price_skuid_to_refcode/price_skuid_to_refcode.py precios_vtex.xl
 ```bash
 # Data conversion utilities
 python3 01_csv_to_json/xlsb_to_csv.py input.xlsb output.csv
+python3 01_csv_to_json/xlsx_to_xls.py input.xlsx output.xls [--sheet Hoja1]  # All sheets; >65536 rows split into Sheet1..N like VTEX export
 python3 translate_keys/translate_keys.py input.json translated.json --indent 4
 python3 json_to_csv/json_to_csv.py input.json output.csv
 python3 19_csv_json_status_filter/csv_json_status_filter.py input.csv output.json
