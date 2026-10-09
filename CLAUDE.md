@@ -111,6 +111,9 @@ python3 29_vtex_price_fetcher/vtex_price_deleter.py input.csv --delay 1.0 --colu
 
 # Price export SKU ID -> reference code (ERP price CSV format) (76)
 python3 76_vtex_price_skuid_to_refcode/price_skuid_to_refcode.py precios_vtex.xlsx products-and-skus.xlsx output_prefix [--dry-run]
+
+# Filter price xlsx to only the SKUs listed in a CSV (e.g. 76's _skus_sin_precio.csv) (77)
+python3 77_price_filter_by_sku_list/filter_prices_by_sku.py skus_sin_precio.csv precios.xlsx output_prefix [--column "SKU ID"]
 ```
 
 ### Utility Commands
