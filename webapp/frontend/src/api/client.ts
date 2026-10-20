@@ -171,7 +171,14 @@ export async function fetchConfig(): Promise<Config> {
 
 /** Estado de credenciales VTEX, legible por cualquier rol (a diferencia de
  *  /api/config, que es admin-only y responde 403 a un operador). */
-export async function fetchVtexStatus(): Promise<{ configured: boolean }> {
+export interface VtexStatus {
+  configured: boolean
+  /** Cuenta VTEX del tenant (no es secreto); null si no está configurada. */
+  account_name: string | null
+  environment: string
+}
+
+export async function fetchVtexStatus(): Promise<VtexStatus> {
   const res = await apiFetch(`${BASE}/vtex-status`)
   if (!res.ok) throw new Error('Failed to fetch VTEX status')
   return res.json()

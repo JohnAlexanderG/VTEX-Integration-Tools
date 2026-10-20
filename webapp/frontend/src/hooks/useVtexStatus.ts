@@ -7,15 +7,25 @@ import { fetchVtexStatus } from '../api/client'
  * credenciales. Así un fallo de este endpoint nunca deja a un operador sin
  * poder ejecutar nada.
  */
-export function useVtexStatus(): { configured: boolean | null; loading: boolean } {
+export function useVtexStatus(): {
+  configured: boolean | null
+  accountName: string | null
+  environment: string | null
+  loading: boolean
+} {
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [accountName, setAccountName] = useState<string | null>(null)
+  const [environment, setEnvironment] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
     fetchVtexStatus()
       .then((s) => {
-        if (!cancelled) setConfigured(s.configured)
+        if (cancelled) return
+        setConfigured(s.configured)
+        setAccountName(s.account_name ?? null)
+        setEnvironment(s.environment ?? null)
       })
       .catch(() => {
         if (!cancelled) setConfigured(null)
@@ -28,5 +38,5 @@ export function useVtexStatus(): { configured: boolean | null; loading: boolean 
     }
   }, [])
 
-  return { configured, loading }
+  return { configured, accountName, environment, loading }
 }

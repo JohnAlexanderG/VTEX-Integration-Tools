@@ -97,15 +97,20 @@ class VtexConfig:
         return f"https://{self.account}.{self.environment}.com.br"
 
     @staticmethod
-    def load() -> "VtexConfig":
-        here = Path(__file__).resolve()
-        candidates = [here.parent.parent / ".env", here.parent / ".env"]
-        for env_path in candidates:
-            if env_path.exists():
-                load_dotenv(env_path)
-                break
+    def load(env_file: Optional[str] = None) -> "VtexConfig":
+        if env_file:
+            if not os.path.exists(env_file):
+                raise RuntimeError(f"No se encontro el archivo de entorno '{env_file}'")
+            load_dotenv(env_file, override=True)
         else:
-            load_dotenv()
+            here = Path(__file__).resolve()
+            candidates = [here.parent.parent / ".env", here.parent / ".env"]
+            for env_path in candidates:
+                if env_path.exists():
+                    load_dotenv(env_path)
+                    break
+            else:
+                load_dotenv()
 
         app_key = os.getenv("X-VTEX-API-AppKey")
         app_token = os.getenv("X-VTEX-API-AppToken")
@@ -421,8 +426,9 @@ def run(
     delay: float,
     timeout: int,
     retries: int,
+    env_file: Optional[str] = None,
 ) -> None:
-    config = VtexConfig.load()
+    config = VtexConfig.load(env_file)
 
     records, stats = scroll_all_pages(
         config=config,
@@ -525,6 +531,10 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_RETRIES,
         help=f"Reintentos para 429, 5xx, timeout o error de red (default: {DEFAULT_RETRIES}).",
     )
+    parser.add_argument(
+        "--env-file",
+        help="Archivo .env alternativo con credenciales (default: .env de la raiz del proyecto).",
+    )
     return parser.parse_args()
 
 
@@ -552,6 +562,7 @@ def main() -> int:
             delay=args.delay,
             timeout=args.timeout,
             retries=args.retries,
+            env_file=args.env_file,
         )
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)

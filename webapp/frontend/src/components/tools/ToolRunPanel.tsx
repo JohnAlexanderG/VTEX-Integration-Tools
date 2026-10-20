@@ -7,7 +7,7 @@ import { useToolForm } from '../../hooks/useToolForm'
 import type { FieldValue } from '../../hooks/useToolForm'
 import FormField from '../FormField'
 import LogPanel from '../LogPanel'
-import { Alert, Button } from '../ui'
+import { Alert, Button, ConfirmDialog } from '../ui'
 import { TOOL_EXTRAS } from './extras'
 import type { ToolExtraProps } from './extras'
 
@@ -15,6 +15,9 @@ interface Props {
   tool: Tool
   /** `null` = no se pudo determinar; no bloquea la ejecución. */
   vtexConfigured: boolean | null
+  /** Cuenta VTEX del tenant; se muestra al confirmar herramientas destructivas. */
+  vtexAccount?: string | null
+  vtexEnvironment?: string | null
   /** Job todavía vivo en el servidor para esta herramienta. */
   resumeJobId?: string | null
   initialValues?: Record<string, FieldValue>
@@ -26,6 +29,8 @@ interface Props {
 export default function ToolRunPanel({
   tool,
   vtexConfigured,
+  vtexAccount = null,
+  vtexEnvironment = null,
   resumeJobId,
   initialValues = {},
   onJobStart,
@@ -40,6 +45,7 @@ export default function ToolRunPanel({
   const [showLogs, setShowLogs] = useState(() => Boolean(resumeJobId))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastRunWasDryRun, setLastRunWasDryRun] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const { logs, status, progress, outputFiles, exitCode, connectionState } = useJob(jobId)
 
@@ -74,6 +80,8 @@ export default function ToolRunPanel({
   const vtexWarning = tool.requires_vtex && vtexConfigured === false
   const toolDisabled = tool.disabled === true
 
+  const isRealDestructiveRun = tool.destructive === true && values.dry_run !== true
+
   const handleRun = async () => {
     setError(null)
 
@@ -88,6 +96,25 @@ export default function ToolRunPanel({
       return
     }
 
+    if (isRealDestructiveRun) {
+      const typed = typeof values.confirm_account === 'string' ? values.confirm_account.trim() : ''
+      if (!typed) {
+        setError('Para el borrado real escribe el nombre de la cuenta VTEX en el campo de confirmación.')
+        return
+      }
+      if (vtexAccount && typed !== vtexAccount) {
+        setError(`El nombre escrito no coincide con la cuenta configurada (${vtexAccount}).`)
+        return
+      }
+      setConfirmOpen(true)
+      return
+    }
+
+    await submitRun()
+  }
+
+  const submitRun = async () => {
+    setConfirmOpen(false)
     setIsSubmitting(true)
     setLastRunWasDryRun(values.dry_run === true)
 
@@ -126,6 +153,8 @@ export default function ToolRunPanel({
     progress,
     isRunning,
     lastRunWasDryRun,
+    vtexAccount,
+    vtexEnvironment,
   }
 
   return (
@@ -251,6 +280,34 @@ export default function ToolRunPanel({
       )}
 
       {AfterRun && <AfterRun {...extraProps} />}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Confirmar borrado real"
+        confirmLabel="Eliminar definitivamente"
+        message={
+          <div className="space-y-2">
+            <p>
+              Se eliminarán documentos en la cuenta VTEX{' '}
+              <strong className="text-ink-1">{vtexAccount ?? '(desconocida)'}</strong>
+              {vtexEnvironment ? ` (${vtexEnvironment})` : ''}.
+            </p>
+            {typeof values.data_entity_name === 'string' && values.data_entity_name && (
+              <p>
+                Entidad: <strong className="text-ink-1">{values.data_entity_name}</strong>
+              </p>
+            )}
+            {values.input_csv instanceof File && (
+              <p>
+                Archivo: <strong className="text-ink-1">{values.input_csv.name}</strong>
+              </p>
+            )}
+            <p>Esta acción no se puede deshacer.</p>
+          </div>
+        }
+        onConfirm={() => void submitRun()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }

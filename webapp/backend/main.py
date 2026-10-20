@@ -1197,6 +1197,46 @@ TOOLS: List[Dict[str, Any]] = [
              "default": "log.csv", "flag": "--log", "role": "output_file"},
         ],
     },
+    {
+        "id": "step_78",
+        "name": "Eliminar documentos Master Data (DELETE)",
+        "shortName": "DELETE Master Data",
+        "description": "Elimina documentos de Master Data en la cuenta VTEX configurada para tu tenant, a partir de un CSV con columna id (salida de 'Exportar Master Data'). IRREVERSIBLE: exporta primero la entidad completa como respaldo. Por defecto ejecuta en dry-run; el borrado real solo lo pueden ejecutar administradores y exige escribir el nombre de la cuenta.",
+        "category": "tools",
+        "step": 78,
+        "script": "78_vtex_masterdata_document_deleter/vtex_masterdata_document_deleter.py",
+        "requires_vtex": True,
+        "destructive": True,
+        "inputs": [
+            {"name": "input_csv", "type": "file",
+             "label": "CSV con columna id (export de Master Data)",
+             "required": True, "accept": ".csv", "position": 0, "role": "input_file"},
+            {"name": "data_entity_name", "type": "text", "label": "Data Entity (sigla, ej. CL)",
+             "required": True, "flag": "--data-entity-name"},
+            {"name": "id_col", "type": "text", "label": "Columna con el id del documento",
+             "default": "id", "flag": "--id-col"},
+            {"name": "dry_run", "type": "checkbox",
+             "label": "Dry run (simular sin hacer DELETE reales)",
+             "default": True, "flag": "--dry-run"},
+            {"name": "confirm_account", "type": "text",
+             "label": "Nombre de la cuenta VTEX (obligatorio para el borrado real)",
+             "flag": "--confirm-account"},
+            {"name": "delay", "type": "number", "label": "Delay entre requests (seg)",
+             "default": 0.2, "flag": "--delay"},
+            {"name": "timeout", "type": "number", "label": "Timeout por request (seg)",
+             "default": 30, "flag": "--timeout"},
+            {"name": "retries", "type": "number", "label": "Reintentos (429/5xx/timeout)",
+             "default": 3, "flag": "--retries"},
+            {"name": "encoding", "type": "text", "label": "Encoding CSV",
+             "default": "utf-8", "flag": "--encoding"},
+            {"name": "output", "type": "text", "label": "CSV de errores",
+             "default": "errores.csv", "flag": "--output", "role": "output_file"},
+            {"name": "report", "type": "text", "label": "Reporte Markdown",
+             "default": "reporte.md", "flag": "--report", "role": "output_file"},
+            {"name": "log", "type": "text", "label": "Log incremental (progreso fila por fila)",
+             "default": "log.csv", "flag": "--log", "role": "output_file"},
+        ],
+    },
 ]
 
 TOOLS_BY_ID: Dict[str, Dict] = {t["id"]: t for t in TOOLS}
@@ -1788,6 +1828,10 @@ async def _run_job(
     await _broadcast(job_id, {"type": "status", "status": "running"})
     await _broadcast(job_id, {"type": "log", "stream": "system",
                                "text": f"$ {' '.join(cmd)}\n"})
+    if tool.get("destructive"):
+        target = (tenant_env or {}).get("VTEX_ACCOUNT_NAME", "(desconocida)")
+        await _broadcast(job_id, {"type": "log", "stream": "system",
+                                   "text": f"⚠️  Cuenta VTEX destino: {target}\n"})
 
     # Las credenciales del tenant sobreescriben las del entorno global
     subprocess_env = {**os.environ, "PYTHONUNBUFFERED": "1", **(tenant_env or {})}
@@ -2438,11 +2482,6 @@ async def run_tool(
             content={"error": "Credenciales VTEX no configuradas. Ve a Configuración."},
         )
 
-    job_id  = str(uuid.uuid4())
-    # Jobs aislados por tenant: /tmp/vtex_webapp/{tenant_id}/{job_id}/
-    job_dir = JOBS_BASE / str(current_user.tenant_id) / job_id
-    job_dir.mkdir(parents=True)
-
     form = await request.form()
 
     # Parse params JSON
@@ -2450,6 +2489,29 @@ async def run_tool(
         params_dict: Dict[str, str] = json.loads(form.get("params", "{}"))  # type: ignore
     except Exception:
         params_dict = {}
+
+    # Herramientas destructivas: el modo real solo para admins y con la cuenta
+    # del tenant escrita a mano. El script vuelve a validar --confirm-account.
+    is_real_destructive_run = tool.get("destructive") and str(
+        params_dict.get("dry_run", "")
+    ).lower() not in ("true", "1", "on", "yes")
+    if is_real_destructive_run:
+        if current_user.role not in (UserRole.admin, UserRole.superadmin):
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Solo administradores pueden ejecutar el borrado real. Usa dry-run."},
+            )
+        account = tc.vtex_account_name if tc else ""
+        if str(params_dict.get("confirm_account", "")).strip() != account:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"El nombre de cuenta no coincide con la cuenta configurada ({account})."},
+            )
+
+    job_id  = str(uuid.uuid4())
+    # Jobs aislados por tenant: /tmp/vtex_webapp/{tenant_id}/{job_id}/
+    job_dir = JOBS_BASE / str(current_user.tenant_id) / job_id
+    job_dir.mkdir(parents=True)
 
     # Save uploaded files — they arrive as file__{field_name}
     file_paths: Dict[str, str] = {}
@@ -2729,7 +2791,11 @@ async def vtex_status(
     know whether a VTEX tool can run.
     """
     tc = await _get_tenant_config(current_user.tenant_id, db)
-    return {"configured": _tenant_vtex_configured(tc)}
+    return {
+        "configured": _tenant_vtex_configured(tc),
+        "account_name": (tc.vtex_account_name if tc else None) or None,
+        "environment": (tc.vtex_environment if tc else None) or "vtexcommercestable",
+    }
 
 
 @app.get("/api/ftp-status")
