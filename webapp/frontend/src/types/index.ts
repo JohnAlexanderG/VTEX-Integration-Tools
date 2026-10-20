@@ -28,6 +28,8 @@ export interface Tool {
   /** true = confirmado no funcional (ej. VTEX devuelve 405); se deja visible pero bloqueada. */
   disabled?: boolean
   disabled_reason?: string | null
+  /** true = borra datos en VTEX; el modo real pide confirmación de la cuenta. */
+  destructive?: boolean
 }
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'

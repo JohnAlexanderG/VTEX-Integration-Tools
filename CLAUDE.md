@@ -114,6 +114,11 @@ python3 76_vtex_price_skuid_to_refcode/price_skuid_to_refcode.py precios_vtex.xl
 
 # Filter price xlsx to only the SKUs listed in a CSV (e.g. 76's _skus_sin_precio.csv) (77)
 python3 77_price_filter_by_sku_list/filter_prices_by_sku.py skus_sin_precio.csv precios.xlsx output_prefix [--column "SKU ID"]
+
+# Master Data: export (backup) and delete documents (69, 78) — DELETE is irreversible
+python3 69_vtex_masterdata_search_exporter/vtex_masterdata_search_exporter.py -e CL --fields _all [--env-file .env.otra] -o respaldo_CL.csv
+python3 78_vtex_masterdata_document_deleter/vtex_masterdata_document_deleter.py respaldo_CL.csv -e CL --dry-run
+python3 78_vtex_masterdata_document_deleter/vtex_masterdata_document_deleter.py respaldo_CL.csv -e CL --confirm-account <cuenta>  # WebOps: admin-only, uses tenant credentials
 ```
 
 ### Utility Commands

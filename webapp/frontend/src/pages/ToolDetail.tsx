@@ -32,7 +32,7 @@ export default function ToolDetail() {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<JobStatus | null>(null)
 
-  const { configured } = useVtexStatus()
+  const { configured, accountName, environment } = useVtexStatus()
   const { jobsByTool } = useActiveJobs(toolId)
   const resumeJobId = jobsByTool[toolId]?.id ?? null
 
@@ -100,6 +100,7 @@ export default function ToolDetail() {
         badge={
           <>
             {tool.disabled && <Badge tone="danger">No funcional</Badge>}
+            {tool.destructive && <Badge tone="danger">Destructiva</Badge>}
             <Badge tone={tool.requires_vtex ? 'info' : 'neutral'}>
               {tool.requires_vtex ? 'API VTEX' : 'Utilidad'}
             </Badge>
@@ -129,6 +130,8 @@ export default function ToolDetail() {
           <ToolRunPanel
             tool={tool}
             vtexConfigured={configured}
+            vtexAccount={accountName}
+            vtexEnvironment={environment}
             resumeJobId={resumeJobId}
             onStatusChange={handleStatusChange}
           />
