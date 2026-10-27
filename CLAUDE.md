@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a collection of Python data transformation utilities for VTEX e-commerce platform integration. The project follows a sequential numbered workflow architecture for converting CSV product data to VTEX-ready format with comprehensive API integration, validation, and full catalog creation workflows.
 
+The repo has two layers:
+1. **CLI scripts** (~85 directories, `NN_name/script.py`): independent argparse tools for catalog, prices, inventory, specifications and Master Data.
+2. **WebOps** (`webapp/`): multi-tenant web platform (FastAPI + PostgreSQL + React) that wraps the scripts in forms, runs them as subprocesses with per-tenant credentials and streams logs. See [WebOps Webapp](#webops-webapp-webapp).
+
 ## Architecture Overview
 
 ### Sequential Workflow Design
@@ -19,7 +23,14 @@ The codebase implements a microservice-style architecture with numbered director
 6. **Media & Asset Management** (16-18): SKU image handling, file management, content operations
 7. **Utility Operations** (19-23): Data filtering, format conversion, specialized transformations
 8. **Category Hierarchy Creation** (24): Automated VTEX category structure creation from flat data
-9. **Price Management** (29): SKU price consultation and bulk deletion via VTEX Pricing API
+9. **Price Management** (22, 28, 29, 45, 76, 77): Price updates, consultation, bulk deletion, diffs, SKU ID ↔ RefId conversion
+10. **Inventory** (23, 29_filter_inventory, 44, 47, 67, 68, 74): Uploads (incl. batch/NDJSON), stock diffs, reset, audit, zero-stock filter
+11. **Specifications** (30-34, 36-38, 40, 61-66, pum_*): Spec groups, fields, values, product/SKU assignments, deletions, validation
+12. **Lookups & Exports** (39, 41-43, 59): SKU getters, SKU ranges, DynamoDB → JSON, SKU/service exporter
+13. **Master Data** (69-73, 78): Export/backup, personal-data CSV, email diffs, PATCH updates, document create/delete
+14. **Catalog Deletion** (75): Product and SKU deletion
+
+Numbering is not strictly sequential: there are two `29_*` directories, `10_deprecated_update_vtex_products`, decimal steps (10.1, 15.2, 16.2) and a gap 48-58. Un-numbered utility directories (`json_to_csv`, `json_to_ndjson`, `ndjson_*_generator`, `to_dynamojson`, `generate_sale_xml`, etc.) live at the root.
 
 ### Extended Data Flow Pattern
 ```
@@ -323,7 +334,53 @@ python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records
 - **File Not Found**: Ensure input files exist and paths are correct (scripts don't create missing directories)
 - **Permission Errors**: Verify venv activation and package installation in correct environment
 
+## WebOps Webapp (`webapp/`)
+
+**Start**: `./webapp/start.sh` — creates `webapp/backend/venv`, installs `requirements.txt`, runs uvicorn on http://localhost:8000 and Vite on http://localhost:5173.
+
+**Webapp environment variables** (read from root `.env`):
+- `DATABASE_URL`: PostgreSQL async URL (default `postgresql+asyncpg://vtex_app:password@localhost:5432/vtex_integration`)
+- `JWT_SECRET_KEY`, `JWT_ALGORITHM` (HS256), `JWT_EXPIRE_MINUTES` (480)
+- `FERNET_KEY`: encrypts tenant secrets in DB. If missing, secrets are stored unencrypted and the JWT secret falls back to an insecure default — always set both in real deployments.
+
+### Backend (`webapp/backend/`, FastAPI async)
+- `main.py`: single file with the `TOOLS` registry (`TOOLS_BY_ID` lookup) and all endpoints
+- `models.py` / `database.py`: SQLAlchemy async (asyncpg). Tables are created on startup via `Base.metadata.create_all` (only creates missing tables — new columns need a manual migration)
+  - `Tenant`, `User` (roles: `superadmin` = Laburu, full access; `admin` = manages own tenant; `operator` = runs tools)
+  - `TenantConfig`: VTEX, FTP and Lambda/AWS credentials per tenant (token and FTP password encrypted with Fernet)
+  - `TenantModulePermission`: which tools each tenant may use
+  - `Job`: execution history
+- `auth.py`: bcrypt password hashing, JWT creation/decoding, Fernet encrypt/decrypt
+- `templates/`: downloadable sample input files, named `step_NN_{input_name}.{ext}`
+
+**Endpoints**: `/auth/*` (login, me, change-password, tenants), `/api/users`, `/api/tenants`, `/api/access/{tenant_id}`, `/api/tools[/{id}[/readme|/template/{input}|/run]]`, `/api/jobs[/{id}[/files/{name}|/ftp-deploy]]`, `/api/jobs/reconcile`, `/api/config`, `/api/vtex-status`, `/api/ftp-status`, WebSocket `/ws/{job_id}`.
+
+### Job execution flow (`POST /api/tools/{id}/run`)
+1. Validate JWT and the tenant's module permission (superadmin bypasses)
+2. Load `TenantConfig` → `_build_tenant_env()`; reject if `requires_vtex` and the tenant has no VTEX credentials
+3. `destructive` tools: real mode only for admin/superadmin and requires typing the tenant account name; the script re-validates `--confirm-account`
+4. Save uploads (multipart field `file__{field_name}`) into `/tmp/vtex_webapp/{tenant_id}/{job_id}/` and persist the `Job`
+5. `_run_job()` runs the script with `asyncio.create_subprocess_exec` from `PROJECT_ROOT`; tenant env vars override the global `.env`. stdout/stderr are streamed over WebSocket; lines with the step 67 progress prefix become progress events (`_parse_progress_line`)
+6. Output files in the job dir are collected, status (`completed`/`failed`) persisted and broadcast
+
+Job files live in `/tmp`, so they are lost on reboot (DB records remain).
+
+**FTP deploy** (`/api/jobs/{id}/ftp-deploy`): uploads a stock-diff NDJSON to the tenant FTP and invokes the tenant Lambda via boto3.
+
+### Frontend (`webapp/frontend/src/`, React + TypeScript + Tailwind + Vite)
+- Pages: `Login`, `ToolsCatalog` (`/tools`), `ToolDetail` (`/tools/:toolId`), `JobHistory` (`/jobs`), `Config` (admin), `Users`, `AccessManagement`; `/pipeline` redirects to `/tools`
+- Components: `tools/ToolRunPanel` (form + run + logs + downloads), `tools/ToolDocsPanel` (README), `tools/ToolCatalogCard`, `LogPanel`, and a `ui/` kit (Button, Modal, ConfirmDialog, Toast…)
+- `context/AuthContext` + `ProtectedRoute` (role-gated routes), `api/client.ts` for HTTP calls
+
+### Adding a new tool (current pattern)
+1. Create `NN_name/` with the argparse script and a README
+2. Register it in `TOOLS` in `webapp/backend/main.py` (set `requires_vtex` / `destructive` as needed); optionally add a template in `webapp/backend/templates/`
+3. Document the command in this file and `README.md`
+4. One feature branch + PR per tool (`feat/<name>`)
+
 ## Dependencies
+
+**Webapp backend**: pinned in `webapp/backend/requirements.txt` (fastapi, uvicorn, sqlalchemy[asyncio], asyncpg, alembic, passlib/bcrypt, python-jose, cryptography, boto3, pandas, openpyxl, xlwt).
 
 **Core Libraries**:
 - `json`, `csv`, `argparse`, `sys` (standard library)
