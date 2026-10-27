@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, Users as UsersIcon, Pencil, KeyRound } from 'lucide-react'
-import { fetchTenants, fetchUsers, createUser, updateUser, type ApiTenant, type ApiUser } from '../api/client'
+import { changePassword, fetchTenants, fetchUsers, createUser, updateUser, type ApiTenant, type ApiUser } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import {
   Alert,
@@ -54,6 +54,7 @@ export default function Users() {
 
   // Cambio de contraseña de otro usuario (admin de su tenant / superadmin)
   const [passwordTarget,  setPasswordTarget]  = useState<ApiUser | null>(null)
+  const [passwordCurrent, setPasswordCurrent] = useState('')
   const [passwordValue,   setPasswordValue]   = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [passwordError,   setPasswordError]   = useState('')
@@ -155,8 +156,14 @@ export default function Users() {
     }
   }
 
+  // Misma regla que _can_manage_credentials en el backend:
+  // superadmin → todos; admin → operadores y él mismo (no otros admins)
+  const canManage = (u: ApiUser) => isSuperAdmin || u.role === 'operator' || u.id === me?.id
+  const isSelfPassword = passwordTarget !== null && passwordTarget.id === me?.id
+
   function openPasswordEditor(u: ApiUser) {
     setPasswordTarget(u)
+    setPasswordCurrent('')
     setPasswordValue('')
     setPasswordConfirm('')
     setPasswordError('')
@@ -176,9 +183,15 @@ export default function Users() {
     setPasswordError('')
     setPasswordSaving(true)
     try {
-      await updateUser(passwordTarget.id, { password: passwordValue })
+      if (isSelfPassword) {
+        // La propia exige la actual; el backend la propaga a las demás cuentas del mismo email
+        await changePassword(passwordCurrent, passwordValue)
+        toast.success('Tu contraseña fue actualizada')
+      } else {
+        await updateUser(passwordTarget.id, { password: passwordValue })
+        toast.success(`Contraseña de ${passwordTarget.username} actualizada`)
+      }
       setPasswordTarget(null)
-      toast.success(`Contraseña de ${passwordTarget.username} actualizada`)
     } catch (e: any) {
       setPasswordError(e.message ?? 'No se pudo cambiar la contraseña')
     } finally {
@@ -341,15 +354,17 @@ export default function Users() {
                     ) : (
                       <Badge tone="warning">Sin email — no puede iniciar sesión</Badge>
                     )}
-                    <button
-                      onClick={() => openEmailEditor(u)}
-                      title="Editar email"
-                      aria-label={`Editar email de ${u.username}`}
-                      className="p-1 text-ink-4 hover:text-ink-1 rounded"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                    {!(u.role === 'superadmin' && !isSuperAdmin) && (
+                    {canManage(u) && (
+                      <button
+                        onClick={() => openEmailEditor(u)}
+                        title="Editar email"
+                        aria-label={`Editar email de ${u.username}`}
+                        className="p-1 text-ink-4 hover:text-ink-1 rounded"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                    {canManage(u) && (
                       <button
                         onClick={() => openPasswordEditor(u)}
                         title="Cambiar contraseña"
@@ -383,8 +398,8 @@ export default function Users() {
                   </div>
                 )}
 
-                {/* Toggle activo (no se puede desactivar a sí mismo) */}
-                {!isMe && (
+                {/* Toggle activo: no a sí mismo; un admin solo sobre operadores */}
+                {!isMe && (isSuperAdmin || u.role === 'operator') && (
                   <Toggle
                     size="sm"
                     checked={u.is_active}
@@ -430,7 +445,20 @@ export default function Users() {
         size="sm"
       >
         <form onSubmit={handlePasswordSave} className="space-y-4">
-          {passwordTarget?.email && (
+          {isSelfPassword ? (
+            <>
+              <p className="text-xs text-ink-4">
+                También se actualiza en tus otras cuentas que usaban esta misma contraseña.
+              </p>
+              <Field label="Contraseña actual" htmlFor="reset-password-current" required>
+                <Input
+                  id="reset-password-current"
+                  type="password" value={passwordCurrent} onChange={e => setPasswordCurrent(e.target.value)} required
+                  autoComplete="current-password" placeholder="••••••••"
+                />
+              </Field>
+            </>
+          ) : passwordTarget?.email && (
             <p className="text-xs text-ink-4">
               Solo cambia esta cuenta ({passwordTarget.tenant_name}). Para ver varias cuentas con{' '}
               {passwordTarget.email} al iniciar sesión, usa la misma contraseña en todas.
