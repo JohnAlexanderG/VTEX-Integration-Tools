@@ -37,6 +37,7 @@ export default function Users() {
   const [tenants,     setTenants]     = useState<ApiTenant[]>([])
   const [movingUserId, setMovingUserId] = useState<number | null>(null)
   const [togglingUserId, setTogglingUserId] = useState<number | null>(null)
+  const [changingRoleUserId, setChangingRoleUserId] = useState<number | null>(null)
 
   // Formulario de nuevo usuario
   const [newUsername, setNewUsername] = useState('')
@@ -130,6 +131,20 @@ export default function Users() {
       toast.error(e.message ?? 'No se pudo mover el usuario')
     } finally {
       setMovingUserId(null)
+    }
+  }
+
+  async function changeRole(u: ApiUser, role: string) {
+    if (u.role === role) return
+    setChangingRoleUserId(u.id)
+    try {
+      await updateUser(u.id, { role })
+      toast.success(`${u.username} ahora es ${ROLE_LABELS[role] ?? role}`)
+      await load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'No se pudo cambiar el rol')
+    } finally {
+      setChangingRoleUserId(null)
     }
   }
 
@@ -379,6 +394,23 @@ export default function Users() {
                     )}
                   </div>
                 </div>
+
+                {isSuperAdmin && !isMe && (
+                  <div className="w-36 flex-shrink-0">
+                    <Select
+                      value={u.role}
+                      disabled={changingRoleUserId === u.id}
+                      onChange={(e) => changeRole(u, e.target.value)}
+                      className="text-xs"
+                      title="Cambiar rol"
+                      aria-label={`Rol de ${u.username}`}
+                    >
+                      <option value="operator">Operador</option>
+                      <option value="admin">Admin</option>
+                      <option value="superadmin">Super Admin</option>
+                    </Select>
+                  </div>
+                )}
 
                 {isSuperAdmin && !isMe && (
                   <div className="w-44 flex-shrink-0">
