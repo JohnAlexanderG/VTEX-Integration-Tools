@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import type { PermissionSet } from '../types'
+import type { PermissionSet, TenantType } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,6 +13,7 @@ export interface AuthUser {
   tenant_id:   number
   tenant_slug: string
   tenant_name: string
+  tenant_type?: TenantType | null
   permissions?: PermissionSet
 }
 

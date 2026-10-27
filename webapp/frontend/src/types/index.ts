@@ -122,10 +122,13 @@ export interface TenantAccessUser {
   created_at: string
 }
 
+export type TenantType = 'standard' | 'seller_portal'
+
 export interface TenantAccess {
   id: number
   name: string
   slug: string
+  tenant_type: TenantType
   is_active: boolean
   users: TenantAccessUser[]
   permissions: PermissionSet

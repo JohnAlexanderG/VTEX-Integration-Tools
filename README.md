@@ -134,6 +134,17 @@ python3 15_vtex_sku_create/vtex_sku_create.py vtex_skus.json
 python3 15.2_vtex_sku_ean_create/vtex_sku_ean_create.py vtex_skus.json
 ```
 
+#### Carga masiva en cuentas Seller Portal (79)
+El Seller Portal no tiene importación por hoja de cálculo. El paso 79 crea productos propios con sus SKUs,
+imágenes, precio y stock desde un Excel (una fila por SKU), usando la Catalog API - Seller Portal y las
+credenciales de la **cuenta del seller**. Detalle de columnas y permisos en `79_vtex_seller_portal_catalog_loader/README.md`.
+```bash
+# Verificar credenciales/permisos, simular y cargar
+python3 79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py productos.xlsx --check
+python3 79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py productos.xlsx --dry-run
+python3 79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py productos.xlsx [--update-existing] [--create-missing-brands]
+```
+
 ### 6. Gestión de Medios y Archivos
 ```bash
 # 16. Fusionar datos de productos con imágenes

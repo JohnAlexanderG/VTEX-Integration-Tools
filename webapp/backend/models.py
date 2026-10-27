@@ -41,6 +41,8 @@ class Tenant(Base):
     id         = Column(Integer, primary_key=True, index=True)
     name       = Column(String(100), nullable=False)
     slug       = Column(String(50),  nullable=False, unique=True, index=True)
+    # "standard" (cuenta VTEX clásica) | "seller_portal" (seller de un marketplace)
+    tenant_type = Column(String(30), nullable=False, default="standard", server_default="standard")
     is_active  = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
