@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { KeyRound, Plus, RefreshCw, Search, Users as UsersIcon, X } from 'lucide-react'
 import { createTenant, fetchAccessOverview, updateTenantAccess } from '../api/client'
-import type { AccessCatalog, TenantAccess } from '../types'
+import type { AccessCatalog, TenantAccess, TenantType } from '../types'
 import {
   Alert,
   Badge,
@@ -12,6 +12,7 @@ import {
   Field,
   Input,
   PageHeader,
+  Select,
   Skeleton,
   Toggle,
   cn,
@@ -39,6 +40,7 @@ export default function AccessManagement() {
   const [tenantName, setTenantName] = useState('')
   const [tenantSlug, setTenantSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
+  const [tenantType, setTenantType] = useState<TenantType>('standard')
   const [creatingTenant, setCreatingTenant] = useState(false)
   const [createTenantError, setCreateTenantError] = useState('')
 
@@ -108,10 +110,12 @@ export default function AccessManagement() {
       const created = await createTenant({
         name: tenantName.trim(),
         slug: slugifyTenant(tenantSlug),
+        tenant_type: tenantType,
       })
       setTenantName('')
       setTenantSlug('')
       setSlugEdited(false)
+      setTenantType('standard')
       setShowCreateTenant(false)
       setSearch('')
       await load(created.id)
@@ -147,7 +151,7 @@ export default function AccessManagement() {
       {showCreateTenant && (
         <Card as="section" className="mb-4">
           <form onSubmit={handleCreateTenant}>
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,320px)_auto] md:items-end">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(180px,260px)_minmax(160px,220px)_auto] md:items-end">
             <Field label="Nombre del tenant" htmlFor="tenant-name">
               <Input
                 id="tenant-name"
@@ -168,10 +172,26 @@ export default function AccessManagement() {
                 placeholder="nuevo-cliente"
               />
             </Field>
+            <Field label="Tipo" htmlFor="tenant-type">
+              <Select
+                id="tenant-type"
+                value={tenantType}
+                onChange={(e) => setTenantType(e.target.value as TenantType)}
+              >
+                <option value="standard">Estándar</option>
+                <option value="seller_portal">Seller Portal</option>
+              </Select>
+            </Field>
             <Button type="submit" icon={Plus} loading={creatingTenant}>
               {creatingTenant ? 'Creando…' : 'Crear tenant'}
             </Button>
           </div>
+          {tenantType === 'seller_portal' && (
+            <p className="mt-3 text-xs text-ink-4">
+              Para sellers de un marketplace en VTEX Seller Portal. Se crea solo con la herramienta
+              de carga Seller Portal habilitada; las credenciales son las de la cuenta del seller.
+            </p>
+          )}
           {createTenantError && (
             <Alert tone="error" className="mt-3">{createTenantError}</Alert>
           )}
@@ -211,9 +231,12 @@ export default function AccessManagement() {
                     <p className="text-sm font-medium text-ink-1">{tenant.name}</p>
                     <p className="text-xs text-ink-4">{tenant.slug}</p>
                   </div>
-                  <Badge tone={tenant.is_active ? 'success' : 'neutral'}>
-                    {tenant.is_active ? 'Activo' : 'Inactivo'}
-                  </Badge>
+                  <div className="flex flex-shrink-0 items-center gap-1.5">
+                    {tenant.tenant_type === 'seller_portal' && <Badge tone="info">Seller</Badge>}
+                    <Badge tone={tenant.is_active ? 'success' : 'neutral'}>
+                      {tenant.is_active ? 'Activo' : 'Inactivo'}
+                    </Badge>
+                  </div>
                 </div>
               </button>
             ))}
@@ -232,7 +255,10 @@ export default function AccessManagement() {
               <div className="flex flex-col gap-2 border-b border-line-1 pb-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-ink-1">{selectedTenant.name}</h2>
-                  <p className="text-sm text-ink-4">{selectedTenant.slug}</p>
+                  <p className="text-sm text-ink-4">
+                    {selectedTenant.slug}
+                    {selectedTenant.tenant_type === 'seller_portal' && ' • Seller Portal'}
+                  </p>
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-control border border-line-1 bg-surface-0 px-3 py-2 text-xs text-ink-3">
                   <UsersIcon size={14} />

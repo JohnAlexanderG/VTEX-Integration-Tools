@@ -109,8 +109,10 @@ async def _startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _migrate_user_schema()
+    await _migrate_tenant_schema()
     await _migrate_jobs_schema()
     await _migrate_legacy_pipeline_permissions()
+    await _migrate_seller_portal_tool_permissions()
     await _reconcile_orphaned_jobs()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1241,9 +1243,48 @@ TOOLS: List[Dict[str, Any]] = [
              "default": "log.csv", "flag": "--log", "role": "output_file"},
         ],
     },
+    {
+        "id": "step_79",
+        "name": "Carga masiva de productos Seller Portal",
+        "shortName": "Carga Seller Portal",
+        "description": "Crea productos propios con sus SKUs, imágenes, precio y stock en una cuenta VTEX Seller Portal desde un Excel (una fila por SKU), usando la Catalog API - Seller Portal. Las categorías las define el marketplace. Ejecuta primero 'Solo verificar credenciales' y luego un dry-run.",
+        "category": "tools",
+        "step": 79,
+        "script": "79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py",
+        "requires_vtex": True,
+        "inputs": [
+            {"name": "input_file", "type": "file", "label": "Excel o CSV de productos (una fila por SKU)",
+             "required": True, "accept": ".xlsx,.csv", "position": 0, "role": "input_file"},
+            {"name": "check", "type": "checkbox",
+             "label": "Solo verificar credenciales y permisos (no lee el archivo)", "flag": "--check"},
+            {"name": "dry_run", "type": "checkbox",
+             "label": "Dry run (validar y simular sin crear nada)", "default": True, "flag": "--dry-run"},
+            {"name": "update_existing", "type": "checkbox",
+             "label": "Actualizar productos que ya existen (por product_external_id)", "flag": "--update-existing"},
+            {"name": "create_missing_brands", "type": "checkbox",
+             "label": "Crear marcas que no existan", "flag": "--create-missing-brands"},
+            {"name": "skip_price", "type": "checkbox", "label": "No aplicar precios", "flag": "--skip-price"},
+            {"name": "skip_stock", "type": "checkbox", "label": "No aplicar stock", "flag": "--skip-stock"},
+            {"name": "warehouse_id", "type": "text",
+             "label": "Warehouse para stock (vacío = el primero activo)", "flag": "--warehouse-id"},
+            {"name": "sheet", "type": "text", "label": "Hoja del Excel (vacío = la primera)", "flag": "--sheet"},
+            {"name": "delay", "type": "number", "label": "Delay entre escrituras (seg)",
+             "default": 1.0, "flag": "--delay"},
+            {"name": "timeout", "type": "number", "label": "Timeout por request (seg)",
+             "default": 30, "flag": "--timeout"},
+            {"name": "output_dir", "type": "text", "label": "Directorio de salida",
+             "default": "seller_portal_output", "flag": "--output-dir", "role": "output_dir"},
+        ],
+    },
 ]
 
 TOOLS_BY_ID: Dict[str, Dict] = {t["id"]: t for t in TOOLS}
+
+TENANT_TYPES = ("standard", "seller_portal")
+
+# Herramientas habilitadas por defecto al crear un tenant Seller Portal: el resto
+# usa la API clásica de catálogo, que no aplica a cuentas seller.
+SELLER_PORTAL_TOOL_IDS = {"step_79"}
 
 
 def _resolve_tool_readme(tool: Dict[str, Any]) -> Optional[Path]:
@@ -1344,6 +1385,19 @@ async def _migrate_legacy_pipeline_permissions() -> None:
         await db.commit()
 
 
+async def _migrate_seller_portal_tool_permissions() -> None:
+    """Hide Seller Portal tools from standard tenants (a missing row means enabled)."""
+    async with AsyncSessionLocal() as db:
+        tenants = (await db.execute(select(Tenant).where(Tenant.tenant_type != "seller_portal"))).scalars().all()
+        for tenant in tenants:
+            permission_map = await _get_tenant_permission_map(tenant.id, db)
+            for tool_id in SELLER_PORTAL_TOOL_IDS:
+                key = _tool_permission_key(tool_id)
+                if key not in permission_map:
+                    db.add(TenantModulePermission(tenant_id=tenant.id, module_key=key, enabled=False))
+        await db.commit()
+
+
 async def _migrate_user_schema() -> None:
     """Keep older PostgreSQL installs compatible with the current User model."""
     if engine.dialect.name != "postgresql":
@@ -1364,6 +1418,18 @@ async def _migrate_user_schema() -> None:
                 ADD COLUMN IF NOT EXISTS role user_role NOT NULL DEFAULT 'operator',
                 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+        """))
+
+
+async def _migrate_tenant_schema() -> None:
+    """Add tenant_type to tenants created before Seller Portal support."""
+    if engine.dialect.name != "postgresql":
+        return
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE tenants
+                ADD COLUMN IF NOT EXISTS tenant_type VARCHAR(30) NOT NULL DEFAULT 'standard'
         """))
 
 
@@ -1968,6 +2034,7 @@ async def _session_payload(user: User, tenant: Optional[Tenant], db: AsyncSessio
         "tenant_id":   user.tenant_id,
         "tenant_slug": tenant.slug if tenant else None,
         "tenant_name": tenant.name if tenant else None,
+        "tenant_type": tenant.tenant_type if tenant else None,
         "permissions": permissions,
     }
 
@@ -2207,6 +2274,7 @@ async def access_overview(
                 "id": tenant.id,
                 "name": tenant.name,
                 "slug": tenant.slug,
+                "tenant_type": tenant.tenant_type,
                 "is_active": tenant.is_active,
                 "users": users_by_tenant.get(tenant.id, []),
                 "permissions": _serialize_permissions(permissions_by_tenant.get(tenant.id, {})),
@@ -2440,6 +2508,7 @@ async def list_tenants(
                 "id":         t.id,
                 "name":       t.name,
                 "slug":       t.slug,
+                "tenant_type": t.tenant_type,
                 "is_active":  t.is_active,
                 "created_at": t.created_at.isoformat(),
             }
@@ -2458,11 +2527,24 @@ async def create_tenant(
     slug = (body.get("slug") or "").strip().lower()
     if not name or not slug:
         return JSONResponse(status_code=400, content={"error": "name y slug son requeridos"})
+    tenant_type = (body.get("tenant_type") or "standard").strip()
+    if tenant_type not in TENANT_TYPES:
+        return JSONResponse(status_code=400, content={"error": "tenant_type inválido"})
     dup = await db.execute(select(Tenant).where(Tenant.slug == slug))
     if dup.scalar_one_or_none():
         return JSONResponse(status_code=409, content={"error": "El slug ya existe"})
-    tenant = Tenant(name=name, slug=slug)
+    tenant = Tenant(name=name, slug=slug, tenant_type=tenant_type)
     db.add(tenant)
+    # Un seller solo opera la carga Seller Portal y un tenant estándar no la ve;
+    # cualquier herramienta se puede volver a habilitar en Accesos
+    await db.flush()
+    for tool in TOOLS:
+        if (tool["id"] in SELLER_PORTAL_TOOL_IDS) != (tenant_type == "seller_portal"):
+            db.add(TenantModulePermission(
+                tenant_id=tenant.id,
+                module_key=_tool_permission_key(tool["id"]),
+                enabled=False,
+            ))
     await db.commit()
     await db.refresh(tenant)
     return {"ok": True, "id": tenant.id}
@@ -2483,6 +2565,10 @@ async def update_tenant(
         tenant.name = body["name"]
     if "is_active" in body:
         tenant.is_active = bool(body["is_active"])
+    if "tenant_type" in body:
+        if body["tenant_type"] not in TENANT_TYPES:
+            return JSONResponse(status_code=400, content={"error": "tenant_type inválido"})
+        tenant.tenant_type = body["tenant_type"]
     await db.commit()
     return {"ok": True}
 
@@ -2575,7 +2661,7 @@ async def download_template(
         return JSONResponse(status_code=404, content={"error": "Template not found"})
 
     filename_base = f"{tool_id}_{input_name}"
-    for ext in (".csv", ".json"):
+    for ext in (".csv", ".json", ".xlsx"):
         path = TEMPLATES_DIR / (filename_base + ext)
         if path.exists():
             return FileResponse(path, filename=path.name, media_type="application/octet-stream")

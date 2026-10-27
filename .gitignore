@@ -41,6 +41,7 @@ Thumbs.db
 # Data files (spreadsheets, exports, binaries)
 *.xls
 *.xlsx
+!webapp/backend/templates/*.xlsx
 *.xlsb
 *.xlsm
 *.xml

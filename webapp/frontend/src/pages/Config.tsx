@@ -129,7 +129,7 @@ function ConfigField({
 }
 
 export default function Config() {
-  const { hasSectionAccess } = useAuth()
+  const { hasSectionAccess, user } = useAuth()
   const configAllowed = hasSectionAccess('config')
   const toast = useToast()
   const [values, setValues] = useState<Record<string, string>>({})
@@ -231,6 +231,24 @@ export default function Config() {
           )}
         </div>
       </div>
+
+      {user?.tenant_type === 'seller_portal' && (
+        <Alert tone="info" title="Cuenta Seller Portal" className="mb-5 md:mb-6">
+          <p>
+            Usa la API key de la <strong>cuenta del seller</strong> (no la del marketplace). Créala en
+            Seller Portal &gt; Configuración de la cuenta &gt; Claves de aplicación, con un rol
+            personalizado que incluya:
+          </p>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5">
+            <li>CatalogV2: Product Read, Product Write, Brand Read, Brand Write, Category Read</li>
+            <li>Pricing: lectura y escritura de precios</li>
+            <li>Logistics: inventario y warehouses</li>
+          </ul>
+          <p className="mt-2">
+            Luego ejecuta la herramienta de carga Seller Portal con &quot;Solo verificar credenciales&quot;.
+          </p>
+        </Alert>
+      )}
 
       <Card className="mb-5 md:mb-6">
         <h2 className="text-sm font-semibold text-ink-1">VTEX</h2>

@@ -3,6 +3,7 @@ import type { JobProgress, JobStatus, Tool } from '../../../types'
 import BatchInventoryProgress from './BatchInventoryProgress'
 import FtpDeployPanel from './FtpDeployPanel'
 import MasterDataDeleteGuard from './MasterDataDeleteGuard'
+import SellerPortalProgress from './SellerPortalProgress'
 
 export interface ToolExtraProps {
   tool: Tool
@@ -31,4 +32,5 @@ export const TOOL_EXTRAS: Record<string, ToolExtras> = {
   step_67: { beforeRun: BatchInventoryProgress },
   step_44: { afterRun: FtpDeployPanel },
   step_78: { beforeRun: MasterDataDeleteGuard },
+  step_79: { beforeRun: SellerPortalProgress },
 }

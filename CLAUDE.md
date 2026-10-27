@@ -29,6 +29,7 @@ The codebase implements a microservice-style architecture with numbered director
 12. **Lookups & Exports** (39, 41-43, 59): SKU getters, SKU ranges, DynamoDB → JSON, SKU/service exporter
 13. **Master Data** (69-73, 78): Export/backup, personal-data CSV, email diffs, PATCH updates, document create/delete
 14. **Catalog Deletion** (75): Product and SKU deletion
+15. **Seller Portal** (79): Bulk own-product load (products + SKUs + images + price + stock) for VTEX Seller Portal accounts via the Catalog API - Seller Portal (beta)
 
 Numbering is not strictly sequential: there are two `29_*` directories, `10_deprecated_update_vtex_products`, decimal steps (10.1, 15.2, 16.2) and a gap 48-58. Un-numbered utility directories (`json_to_csv`, `json_to_ndjson`, `ndjson_*_generator`, `to_dynamojson`, `generate_sale_xml`, etc.) live at the root.
 
@@ -130,6 +131,11 @@ python3 77_price_filter_by_sku_list/filter_prices_by_sku.py skus_sin_precio.csv 
 python3 69_vtex_masterdata_search_exporter/vtex_masterdata_search_exporter.py -e CL --fields _all [--env-file .env.otra] -o respaldo_CL.csv
 python3 78_vtex_masterdata_document_deleter/vtex_masterdata_document_deleter.py respaldo_CL.csv -e CL --dry-run
 python3 78_vtex_masterdata_document_deleter/vtex_masterdata_document_deleter.py respaldo_CL.csv -e CL --confirm-account <cuenta>  # WebOps: admin-only, uses tenant credentials
+
+# Seller Portal bulk product load (79) — uses the SELLER account credentials, not the marketplace's
+python3 79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py productos.xlsx --check     # read permissions
+python3 79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py productos.xlsx --dry-run   # payloads, no writes
+python3 79_vtex_seller_portal_catalog_loader/seller_portal_catalog_loader.py productos.xlsx [--update-existing] [--create-missing-brands] [--skip-price] [--skip-stock]
 ```
 
 ### Utility Commands
@@ -347,13 +353,14 @@ python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records
 - `main.py`: single file with the `TOOLS` registry (`TOOLS_BY_ID` lookup) and all endpoints
 - `models.py` / `database.py`: SQLAlchemy async (asyncpg). Tables are created on startup via `Base.metadata.create_all` (only creates missing tables — new columns need a manual migration)
   - `Tenant`, `User` (roles: `superadmin` = Laburu, full access; `admin` = manages own tenant; `operator` = runs tools)
+  - `Tenant.tenant_type`: `standard` | `seller_portal`. A Seller Portal seller (e.g. a marketplace seller with its own VTEX account) is its own tenant with its own credentials, not a role; creating one seeds permissions with only the `SELLER_PORTAL_TOOL_IDS` tools (`step_79`) enabled; standard tenants get those tools disabled (startup migration `_migrate_seller_portal_tool_permissions` covers existing tenants)
   - `TenantConfig`: VTEX, FTP and Lambda/AWS credentials per tenant (token and FTP password encrypted with Fernet)
   - `TenantModulePermission`: which tools each tenant may use
   - `Job`: execution history
 - `auth.py`: bcrypt password hashing, JWT creation/decoding, Fernet encrypt/decrypt
 
 **Login flow (email + password)**: a person = one `User` row per tenant sharing the same email (email is required and unique per tenant, stored lowercase). `POST /auth/login {email, password}` matches all active users/tenants whose password verifies: 1 match → session JWT; 2+ → short-lived `selection_token` (type `account_select`, 10 min) + account list, completed via `POST /auth/select-account`. The session JWT carries `acct` (eligible user_ids) so `GET /auth/accounts` / `POST /auth/switch-account` change tenant without re-entering the password. `change-password` updates every same-email account that shared the current password.
-- `templates/`: downloadable sample input files, named `step_NN_{input_name}.{ext}`
+- `templates/`: downloadable sample input files, named `step_NN_{input_name}.{ext}` (ext: csv, json or xlsx; `*.xlsx` is gitignored repo-wide except in this folder)
 
 **Endpoints**: `/auth/*` (login, select-account, accounts, switch-account, me, change-password), `/api/users`, `/api/tenants`, `/api/access/{tenant_id}`, `/api/tools[/{id}[/readme|/template/{input}|/run]]`, `/api/jobs[/{id}[/files/{name}|/ftp-deploy]]`, `/api/jobs/reconcile`, `/api/config`, `/api/vtex-status`, `/api/ftp-status`, WebSocket `/ws/{job_id}`.
 

@@ -1,4 +1,4 @@
-import type { AccessCatalog, Config, Job, PermissionSet, TenantAccess, Tool } from '../types'
+import type { AccessCatalog, Config, Job, PermissionSet, TenantAccess, TenantType, Tool } from '../types'
 import type { AuthUser } from '../context/AuthContext'
 
 const BASE = '/api'
@@ -267,6 +267,7 @@ export interface ApiTenant {
   id:         number
   name:       string
   slug:       string
+  tenant_type: TenantType
   is_active:  boolean
   created_at: string
 }
@@ -391,7 +392,7 @@ export async function fetchTenants(): Promise<ApiTenant[]> {
   return data.tenants
 }
 
-export async function createTenant(payload: { name: string; slug: string }): Promise<{ id: number }> {
+export async function createTenant(payload: { name: string; slug: string; tenant_type: TenantType }): Promise<{ id: number }> {
   const res = await apiFetch(`${BASE}/tenants`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
