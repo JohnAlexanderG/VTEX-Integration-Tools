@@ -9,6 +9,7 @@ import asyncio
 import ftplib
 import json
 import os
+import re
 import sys
 import shutil
 import subprocess
@@ -23,7 +24,7 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile, WebSocket
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import select, text, update as sa_update
+from sqlalchemy import func, select, text, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Cargar .env desde la raíz del proyecto (3 niveles arriba de webapp/backend/)
@@ -38,11 +39,14 @@ from models import (                                                           #
     User,
     UserRole,
 )
+from jose import JWTError                                                      # noqa: E402
 from auth import (                                                             # noqa: E402
-    create_access_token, decrypt_value, encrypt_value,
-    hash_password, verify_password,
+    SELECTION_TOKEN_TYPE, create_access_token, create_selection_token,
+    decode_token, decrypt_value, encrypt_value, hash_password, verify_password,
 )
-from dependencies import get_current_user, require_admin, require_superadmin  # noqa: E402
+from dependencies import (                                                     # noqa: E402
+    get_current_user, get_token_payload, require_admin, require_superadmin,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -1935,79 +1939,165 @@ def _tenant_ftp_configured(tc: Optional[TenantConfig]) -> bool:
 # Auth endpoints  (públicos — sin JWT requerido)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/auth/tenants")
-async def list_tenants_public(db: AsyncSession = Depends(get_db)):
-    """Lista tenants activos para el selector de login."""
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _normalize_email(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+async def _email_taken(email: str, tenant_id: int, exclude_user_id: Optional[int], db: AsyncSession) -> bool:
+    """El email identifica al usuario en el login, así que es único dentro de cada tenant."""
+    query = select(User.id).where(User.tenant_id == tenant_id, func.lower(func.trim(User.email)) == _normalize_email(email))
+    if exclude_user_id is not None:
+        query = query.where(User.id != exclude_user_id)
+    return (await db.execute(query)).first() is not None
+
+
+async def _session_payload(user: User, tenant: Optional[Tenant], db: AsyncSession) -> Dict[str, Any]:
+    """Datos de sesión que consume el frontend (login, me, cambio de cuenta)."""
+    if user.role == UserRole.superadmin:
+        permissions = _all_enabled_permissions()
+    else:
+        permissions = _serialize_permissions(await _get_tenant_permission_map(user.tenant_id, db))
+    return {
+        "id":          user.id,
+        "username":    user.username,
+        "email":       user.email,
+        "role":        user.role.value,
+        "tenant_id":   user.tenant_id,
+        "tenant_slug": tenant.slug if tenant else None,
+        "tenant_name": tenant.name if tenant else None,
+        "permissions": permissions,
+    }
+
+
+def _account_summary(user: User, tenant: Tenant) -> Dict[str, Any]:
+    return {
+        "user_id":     user.id,
+        "username":    user.username,
+        "role":        user.role.value,
+        "tenant_id":   tenant.id,
+        "tenant_slug": tenant.slug,
+        "tenant_name": tenant.name,
+    }
+
+
+async def _active_accounts(user_ids: List[int], db: AsyncSession) -> List[Tuple[User, Tenant]]:
+    """Usuarios activos (de tenants activos) dentro de user_ids, ordenados por tenant."""
+    if not user_ids:
+        return []
     result = await db.execute(
-        select(Tenant.slug, Tenant.name).where(Tenant.is_active == True)
+        select(User, Tenant)
+        .join(Tenant, Tenant.id == User.tenant_id)
+        .where(User.id.in_(user_ids), User.is_active == True, Tenant.is_active == True)
+        .order_by(Tenant.name)
     )
-    rows = result.all()
-    return {"tenants": [{"slug": r.slug, "name": r.name} for r in rows]}
+    return [(row.User, row.Tenant) for row in result.all()]
+
+
+async def _issue_session(user: User, tenant: Tenant, accounts: List[int], db: AsyncSession) -> Dict[str, Any]:
+    token = create_access_token(user.id, user.tenant_id, user.role.value, accounts=accounts)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": await _session_payload(user, tenant, db),
+    }
 
 
 @app.post("/auth/login")
 async def login(body: Dict[str, str], db: AsyncSession = Depends(get_db)):
     """
-    Login con username + password + tenant_slug.
-    Retorna un JWT con user_id, tenant_id y role.
+    Login con email + password.
+    El mismo email puede existir en varios tenants (una fila User por tenant):
+      - 1 cuenta válida  → retorna el JWT de sesión directamente.
+      - 2+ cuentas       → retorna un selection_token + la lista de cuentas para elegir.
     """
-    username    = (body.get("username") or "").strip()
-    password    = body.get("password") or ""
-    tenant_slug = (body.get("tenant_slug") or "").strip()
-
-    # Buscar tenant
-    t_result = await db.execute(
-        select(Tenant).where(Tenant.slug == tenant_slug, Tenant.is_active == True)
-    )
-    tenant = t_result.scalar_one_or_none()
-    if not tenant:
+    email    = _normalize_email(body.get("email"))
+    password = body.get("password") or ""
+    if not email or not password:
         return JSONResponse(status_code=401, content={"error": "Credenciales incorrectas"})
 
-    # Buscar usuario dentro del tenant
-    u_result = await db.execute(
-        select(User).where(
-            User.tenant_id == tenant.id,
-            User.username  == username,
-            User.is_active == True,
-        )
+    result = await db.execute(
+        select(User, Tenant)
+        .join(Tenant, Tenant.id == User.tenant_id)
+        .where(func.lower(func.trim(User.email)) == email, User.is_active == True, Tenant.is_active == True)
+        .order_by(Tenant.name)
     )
-    user = u_result.scalar_one_or_none()
-    if not user or not verify_password(password, user.hashed_password):
+    accounts = [
+        (row.User, row.Tenant) for row in result.all()
+        if verify_password(password, row.User.hashed_password)
+    ]
+    if not accounts:
         return JSONResponse(status_code=401, content={"error": "Credenciales incorrectas"})
 
-    permission_map = await _get_tenant_permission_map(user.tenant_id, db)
-    token = create_access_token(user.id, user.tenant_id, user.role.value)
+    account_ids = [u.id for u, _ in accounts]
+    if len(accounts) == 1:
+        user, tenant = accounts[0]
+        return await _issue_session(user, tenant, account_ids, db)
+
     return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": {
-            "id":          user.id,
-            "username":    user.username,
-            "email":       user.email,
-            "role":        user.role.value,
-            "tenant_id":   user.tenant_id,
-            "tenant_slug": tenant.slug,
-            "tenant_name": tenant.name,
-            "permissions": _all_enabled_permissions() if user.role == UserRole.superadmin else _serialize_permissions(permission_map),
-        },
+        "requires_account_selection": True,
+        "selection_token": create_selection_token(account_ids),
+        "accounts": [_account_summary(u, t) for u, t in accounts],
     }
+
+
+@app.post("/auth/select-account")
+async def select_account(body: Dict[str, Any], db: AsyncSession = Depends(get_db)):
+    """Completa el login eligiendo una de las cuentas devueltas por /auth/login."""
+    try:
+        payload  = decode_token(str(body.get("selection_token") or ""))
+        user_ids = [int(uid) for uid in payload["user_ids"]]
+        user_id  = int(body.get("user_id"))
+        if payload.get("type") != SELECTION_TOKEN_TYPE:
+            raise ValueError("type")
+    except (JWTError, KeyError, TypeError, ValueError):
+        return JSONResponse(status_code=401, content={"error": "La selección expiró, vuelve a iniciar sesión"})
+
+    if user_id not in user_ids:
+        return JSONResponse(status_code=403, content={"error": "Cuenta no disponible"})
+    accounts = await _active_accounts(user_ids, db)
+    match = next(((u, t) for u, t in accounts if u.id == user_id), None)
+    if not match:
+        return JSONResponse(status_code=403, content={"error": "Cuenta no disponible"})
+    return await _issue_session(match[0], match[1], [u.id for u, _ in accounts], db)
 
 
 @app.get("/auth/me")
 async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     t_result = await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
-    tenant = t_result.scalar_one_or_none()
-    permission_map = await _get_tenant_permission_map(current_user.tenant_id, db)
-    return {
-        "id":          current_user.id,
-        "username":    current_user.username,
-        "email":       current_user.email,
-        "role":        current_user.role.value,
-        "tenant_id":   current_user.tenant_id,
-        "tenant_slug": tenant.slug if tenant else None,
-        "tenant_name": tenant.name if tenant else None,
-        "permissions": _all_enabled_permissions() if current_user.role == UserRole.superadmin else _serialize_permissions(permission_map),
-    }
+    return await _session_payload(current_user, t_result.scalar_one_or_none(), db)
+
+
+@app.get("/auth/accounts")
+async def my_accounts(
+    payload: Dict[str, Any] = Depends(get_token_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cuentas a las que el usuario puede cambiar sin volver a ingresar la contraseña."""
+    accounts = await _active_accounts([int(uid) for uid in payload.get("acct", [])], db)
+    return {"accounts": [_account_summary(u, t) for u, t in accounts]}
+
+
+@app.post("/auth/switch-account")
+async def switch_account(
+    body: Dict[str, Any],
+    payload: Dict[str, Any] = Depends(get_token_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "user_id inválido"})
+    allowed  = [int(uid) for uid in payload.get("acct", [])]
+    if user_id not in allowed:
+        return JSONResponse(status_code=403, content={"error": "Cuenta no disponible"})
+    accounts = await _active_accounts(allowed, db)
+    match = next(((u, t) for u, t in accounts if u.id == user_id), None)
+    if not match:
+        return JSONResponse(status_code=403, content={"error": "Cuenta no disponible"})
+    return await _issue_session(match[0], match[1], [u.id for u, _ in accounts], db)
 
 
 @app.post("/auth/change-password")
@@ -2022,8 +2112,19 @@ async def change_password(
         return JSONResponse(status_code=400, content={"error": "Contraseña actual incorrecta"})
     if len(new_pass) < 8:
         return JSONResponse(status_code=400, content={"error": "La contraseña debe tener al menos 8 caracteres"})
+
+    # Mantener una sola contraseña por persona: se actualizan también las otras
+    # cuentas con el mismo email que compartían la contraseña actual.
+    target_ids = [current_user.id]
+    email = _normalize_email(current_user.email)
+    if email:
+        result = await db.execute(
+            select(User).where(func.lower(func.trim(User.email)) == email, User.id != current_user.id)
+        )
+        target_ids += [u.id for u in result.scalars().all() if verify_password(current, u.hashed_password)]
+
     await db.execute(
-        sa_update(User).where(User.id == current_user.id).values(hashed_password=hash_password(new_pass))
+        sa_update(User).where(User.id.in_(target_ids)).values(hashed_password=hash_password(new_pass))
     )
     await db.commit()
     return {"ok": True}
@@ -2174,12 +2275,14 @@ async def create_user(
         return denied
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
-    email    = (body.get("email") or "").strip() or None
+    email    = _normalize_email(body.get("email"))
     role_str = body.get("role", "operator")
 
     # Validaciones
-    if not username or not password:
-        return JSONResponse(status_code=400, content={"error": "username y password son requeridos"})
+    if not username or not password or not email:
+        return JSONResponse(status_code=400, content={"error": "username, email y password son requeridos"})
+    if not _EMAIL_RE.match(email):
+        return JSONResponse(status_code=400, content={"error": "Email inválido"})
     if len(password) < 8:
         return JSONResponse(status_code=400, content={"error": "La contraseña debe tener al menos 8 caracteres"})
 
@@ -2202,6 +2305,8 @@ async def create_user(
     )
     if dup.scalar_one_or_none():
         return JSONResponse(status_code=409, content={"error": "El usuario ya existe en este tenant"})
+    if await _email_taken(email, tenant_id, None, db):
+        return JSONResponse(status_code=409, content={"error": "Ese email ya existe en esta cuenta"})
 
     new_user = User(
         tenant_id=tenant_id,
@@ -2237,7 +2342,14 @@ async def update_user(
     if "is_active" in body:
         target.is_active = bool(body["is_active"])
     if "email" in body:
-        target.email = body["email"] or None
+        new_email = _normalize_email(body["email"])
+        if not new_email:
+            return JSONResponse(status_code=400, content={"error": "El email es obligatorio"})
+        if not _EMAIL_RE.match(new_email):
+            return JSONResponse(status_code=400, content={"error": "Email inválido"})
+        if await _email_taken(new_email, target.tenant_id, target.id, db):
+            return JSONResponse(status_code=409, content={"error": "Ese email ya existe en esta cuenta"})
+        target.email = new_email
     if "role" in body:
         try:
             new_role = UserRole(body["role"])
@@ -2271,8 +2383,12 @@ async def update_user(
         ).scalar_one_or_none()
         if duplicate:
             return JSONResponse(status_code=409, content={"error": "Ya existe un usuario con ese nombre en el tenant destino"})
+        if target.email and await _email_taken(target.email, new_tenant_id, target.id, db):
+            return JSONResponse(status_code=409, content={"error": "Ya existe un usuario con ese email en el tenant destino"})
         target.tenant_id = new_tenant_id
     if "password" in body and body["password"]:
+        if current_user.role == UserRole.admin and target.role == UserRole.superadmin:
+            return JSONResponse(status_code=403, content={"error": "No puedes cambiar la contraseña de un superadmin"})
         if len(body["password"]) < 8:
             return JSONResponse(status_code=400, content={"error": "Contraseña muy corta"})
         target.hashed_password = hash_password(body["password"])

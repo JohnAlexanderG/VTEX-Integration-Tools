@@ -351,9 +351,11 @@ python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(f'Records
   - `TenantModulePermission`: which tools each tenant may use
   - `Job`: execution history
 - `auth.py`: bcrypt password hashing, JWT creation/decoding, Fernet encrypt/decrypt
+
+**Login flow (email + password)**: a person = one `User` row per tenant sharing the same email (email is required and unique per tenant, stored lowercase). `POST /auth/login {email, password}` matches all active users/tenants whose password verifies: 1 match → session JWT; 2+ → short-lived `selection_token` (type `account_select`, 10 min) + account list, completed via `POST /auth/select-account`. The session JWT carries `acct` (eligible user_ids) so `GET /auth/accounts` / `POST /auth/switch-account` change tenant without re-entering the password. `change-password` updates every same-email account that shared the current password.
 - `templates/`: downloadable sample input files, named `step_NN_{input_name}.{ext}`
 
-**Endpoints**: `/auth/*` (login, me, change-password, tenants), `/api/users`, `/api/tenants`, `/api/access/{tenant_id}`, `/api/tools[/{id}[/readme|/template/{input}|/run]]`, `/api/jobs[/{id}[/files/{name}|/ftp-deploy]]`, `/api/jobs/reconcile`, `/api/config`, `/api/vtex-status`, `/api/ftp-status`, WebSocket `/ws/{job_id}`.
+**Endpoints**: `/auth/*` (login, select-account, accounts, switch-account, me, change-password), `/api/users`, `/api/tenants`, `/api/access/{tenant_id}`, `/api/tools[/{id}[/readme|/template/{input}|/run]]`, `/api/jobs[/{id}[/files/{name}|/ftp-deploy]]`, `/api/jobs/reconcile`, `/api/config`, `/api/vtex-status`, `/api/ftp-status`, WebSocket `/ws/{job_id}`.
 
 ### Job execution flow (`POST /api/tools/{id}/run`)
 1. Validate JWT and the tenant's module permission (superadmin bypasses)

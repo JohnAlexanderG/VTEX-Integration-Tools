@@ -1,42 +1,32 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Zap } from 'lucide-react'
+import { ArrowLeft, Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { Alert, Button, Field, Input, Select, Skeleton } from '../components/ui'
+import { loginWithEmail, selectAccount, type AccountSummary } from '../api/client'
+import AccountList from '../components/AccountList'
+import { Alert, Button, Field, Input } from '../components/ui'
 
-interface TenantOption {
-  slug: string
-  name: string
+interface Selection {
+  token:    string
+  accounts: AccountSummary[]
 }
 
 export default function Login() {
   const { login, user } = useAuth()
   const navigate        = useNavigate()
 
-  const [tenants,      setTenants]      = useState<TenantOption[]>([])
-  const [tenantSlug,   setTenantSlug]   = useState('')
-  const [username,     setUsername]     = useState('')
-  const [password,     setPassword]     = useState('')
-  const [error,        setError]        = useState('')
-  const [loading,      setLoading]      = useState(false)
-  const [loadingTenants, setLoadingTenants] = useState(true)
+  const [email,     setEmail]     = useState('')
+  const [password,  setPassword]  = useState('')
+  const [error,     setError]     = useState('')
+  const [loading,   setLoading]   = useState(false)
+  // Paso 2: el email pertenece a varias cuentas y hay que elegir una
+  const [selection, setSelection] = useState<Selection | null>(null)
+  const [pendingId, setPendingId] = useState<number | null>(null)
 
   // Si ya está autenticado, redirigir
   useEffect(() => {
     if (user) navigate('/tools', { replace: true })
   }, [user, navigate])
-
-  // Cargar tenants disponibles
-  useEffect(() => {
-    fetch('/auth/tenants')
-      .then(r => r.json())
-      .then(d => {
-        setTenants(d.tenants || [])
-        if (d.tenants?.length === 1) setTenantSlug(d.tenants[0].slug)
-      })
-      .catch(() => setError('Error al conectar con el servidor'))
-      .finally(() => setLoadingTenants(false))
-  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -44,25 +34,39 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const res = await fetch('/auth/login', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ username, password, tenant_slug: tenantSlug }),
-      })
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || 'Credenciales incorrectas')
+      const data = await loginWithEmail(email, password)
+      if ('requires_account_selection' in data) {
+        setSelection({ token: data.selection_token, accounts: data.accounts })
         return
       }
-
       login(data.access_token, data.user)
       navigate('/tools', { replace: true })
-    } catch {
-      setError('Error de red. Verifica tu conexión.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error de red. Verifica tu conexión.')
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleSelect(account: AccountSummary) {
+    if (!selection) return
+    setError('')
+    setPendingId(account.user_id)
+    try {
+      const data = await selectAccount(selection.token, account.user_id)
+      login(data.access_token, data.user)
+      navigate('/tools', { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo seleccionar la cuenta')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  function backToCredentials() {
+    setSelection(null)
+    setPassword('')
+    setError('')
   }
 
   return (
@@ -74,62 +78,58 @@ export default function Login() {
             <Zap size={34} className="text-accent-fg" strokeWidth={1.8} />
           </div>
           <h1 className="text-2xl font-bold text-ink-1">VTEX Integration Tools</h1>
-          <p className="text-ink-3 text-sm mt-1">Inicia sesión para continuar</p>
+          <p className="text-ink-3 text-sm mt-1">
+            {selection ? 'Elige la cuenta con la que quieres entrar' : 'Inicia sesión para continuar'}
+          </p>
         </div>
 
         {/* Card */}
         <div className="bg-surface-1 border border-line-1 rounded-card p-8 shadow-xl">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {selection ? (
+            <div className="space-y-5">
+              <p className="text-xs text-ink-4 truncate">{email}</p>
 
-            {/* Selector de cuenta (tenant) */}
-            <Field label="Cuenta" htmlFor="tenant">
-              {loadingTenants ? (
-                <Skeleton className="h-10" />
-              ) : (
-                <Select
-                  id="tenant"
-                  value={tenantSlug}
-                  onChange={e => setTenantSlug(e.target.value)}
+              <AccountList accounts={selection.accounts} onSelect={handleSelect} pendingId={pendingId} />
+
+              {error && <Alert tone="error">{error}</Alert>}
+
+              <Button variant="ghost" fullWidth onClick={backToCredentials} disabled={pendingId !== null}>
+                <ArrowLeft size={15} /> Usar otro correo
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <Field label="Correo" htmlFor="email">
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
                   required
-                >
-                  <option value="">Selecciona una cuenta...</option>
-                  {tenants.map(t => (
-                    <option key={t.slug} value={t.slug}>{t.name}</option>
-                  ))}
-                </Select>
-              )}
-            </Field>
+                  autoComplete="email"
+                  placeholder="tu@correo.com"
+                />
+              </Field>
 
-            <Field label="Usuario" htmlFor="username">
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                required
-                autoComplete="username"
-                placeholder="tu_usuario"
-              />
-            </Field>
+              <Field label="Contraseña" htmlFor="password">
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                />
+              </Field>
 
-            <Field label="Contraseña" htmlFor="password">
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                placeholder="••••••••"
-              />
-            </Field>
+              {error && <Alert tone="error">{error}</Alert>}
 
-            {error && <Alert tone="error">{error}</Alert>}
-
-            <Button type="submit" fullWidth loading={loading} disabled={loadingTenants}>
-              {loading ? 'Ingresando…' : 'Ingresar'}
-            </Button>
-          </form>
+              <Button type="submit" fullWidth loading={loading}>
+                {loading ? 'Ingresando…' : 'Ingresar'}
+              </Button>
+            </form>
+          )}
         </div>
 
         <p className="text-center text-ink-4 text-xs mt-6">

@@ -7,7 +7,7 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import decode_token
+from auth import SELECTION_TOKEN_TYPE, decode_token
 from database import get_db
 from models import User, UserRole
 
@@ -21,6 +21,9 @@ async def get_current_user(
     """Valida el Bearer token y retorna el usuario activo."""
     try:
         payload = decode_token(credentials.credentials)
+        # Los tokens de selección de cuenta no sirven como sesión
+        if payload.get("type") == SELECTION_TOKEN_TYPE:
+            raise KeyError("type")
         user_id: int = int(payload["user_id"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
@@ -32,6 +35,14 @@ async def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Usuario no encontrado o inactivo")
     return user
+
+
+async def get_token_payload(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    _: User = Depends(get_current_user),
+) -> dict:
+    """Claims del access token actual (ya validado por get_current_user)."""
+    return decode_token(credentials.credentials)
 
 
 def require_roles(*roles: UserRole):

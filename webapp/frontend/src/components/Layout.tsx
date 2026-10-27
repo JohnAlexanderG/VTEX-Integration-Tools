@@ -1,15 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Wrench, History, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound } from 'lucide-react'
+import { Wrench, History, Settings, CheckCircle, XCircle, AlertCircle, Menu, X, Users, LogOut, KeyRound, ArrowLeftRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useVtexStatus } from '../hooks/useVtexStatus'
+import { fetchMyAccounts, switchAccount, type AccountSummary } from '../api/client'
+import { ROLE_LABELS } from '../lib/roles'
+import AccountList from './AccountList'
+import { Alert, Modal } from './ui'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // /api/vtex-status lo puede leer cualquier rol; /api/config es admin-only y
   // dejaba a los operadores sin saber si VTEX estaba configurado.
   const { configured: vtexOk } = useVtexStatus()
-  const { user, logout, isAdmin, isSuperAdmin, hasSectionAccess } = useAuth()
+  const { user, login, logout, isAdmin, isSuperAdmin, hasSectionAccess } = useAuth()
   const navigate                      = useNavigate()
   const hasToolsAccess = hasSectionAccess('tools')
   const hasHistoryAccess = hasSectionAccess('history')
@@ -23,10 +27,29 @@ export default function Layout() {
     navigate('/login', { replace: true })
   }
 
-  const roleLabel: Record<string, string> = {
-    superadmin: 'Super Admin',
-    admin:      'Admin',
-    operator:   'Operador',
+  // Cuentas del mismo email (para "Cambiar cuenta"); solo se muestra si hay más de una
+  const [accounts,     setAccounts]     = useState<AccountSummary[]>([])
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [switchingId,  setSwitchingId]  = useState<number | null>(null)
+  const [switchError,  setSwitchError]  = useState('')
+
+  useEffect(() => {
+    if (!user) return
+    fetchMyAccounts().then(setAccounts).catch(() => setAccounts([]))
+  }, [user?.id])
+
+  async function handleSwitch(account: AccountSummary) {
+    setSwitchError('')
+    setSwitchingId(account.user_id)
+    try {
+      const data = await switchAccount(account.user_id)
+      login(data.access_token, data.user)
+      // Recarga completa: el estado cargado (jobs, config, permisos) es de la cuenta anterior
+      window.location.assign('/tools')
+    } catch (err) {
+      setSwitchError(err instanceof Error ? err.message : 'No se pudo cambiar de cuenta')
+      setSwitchingId(null)
+    }
   }
 
   return (
@@ -171,7 +194,17 @@ export default function Layout() {
             <div className="flex items-center justify-between">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-ink-2 truncate">{user.username}</p>
-                <p className="text-[11px] text-ink-4">{roleLabel[user.role] ?? user.role}</p>
+                <p className="text-[11px] text-ink-4 truncate">
+                  {ROLE_LABELS[user.role] ?? user.role} · {user.tenant_name}
+                </p>
+                {accounts.length > 1 && (
+                  <button
+                    onClick={() => { setSwitchError(''); setSwitcherOpen(true) }}
+                    className="mt-1 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+                  >
+                    <ArrowLeftRight size={11} /> Cambiar cuenta
+                  </button>
+                )}
               </div>
               <button
                 onClick={handleLogout}
@@ -184,6 +217,23 @@ export default function Layout() {
           )}
         </div>
       </aside>
+
+      <Modal
+        open={switcherOpen}
+        onClose={() => { if (switchingId === null) setSwitcherOpen(false) }}
+        title="Cambiar cuenta"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <AccountList
+            accounts={accounts}
+            onSelect={handleSwitch}
+            pendingId={switchingId}
+            currentId={user?.id}
+          />
+          {switchError && <Alert tone="error">{switchError}</Alert>}
+        </div>
+      </Modal>
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
