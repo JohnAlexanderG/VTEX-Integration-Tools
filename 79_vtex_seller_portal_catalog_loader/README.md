@@ -67,6 +67,8 @@ La plantilla está en `webapp/backend/templates/step_79_input_file.xlsx`, con un
    - El nombre del archivo es `sha1(url)`, así que al re-ejecutar la API responde 409 y se
      reutiliza la imagen.
    - El token local se obtiene con `apptoken/login`.
+   - El producto lleva `images` como objetos `{id, url, alt}`; cada SKU las referencia por **URL
+     completa** de vtexassets (si la fila no trae imágenes propias, hereda todas las del producto).
 4. **Producto.** `GET /products/external-id={id}`:
    - Si no existe → `POST /products` (producto y todos sus SKUs en una sola llamada).
    - Si existe → se omite, o se hace `PUT /products/{id}` con `--update-existing`. El PUT conserva
@@ -126,7 +128,6 @@ El proceso termina con exit 1 solo si hubo errores y ningún producto se proces�
 La documentación de VTEX no cubre estos puntos. Hay que confirmarlos con una corrida de 1 producto
 en estado `inactive`:
 
-- Que la API acepte `images` de SKU como ids de imagen (el script los envía así) y no como URL completa.
 - El nombre del campo multipart en `catalog-images/save` (el script usa `file`).
 - Que las APIs de Pricing y Logistics respondan en cuentas Seller Portal con la misma API key.
 - Si `categoryIds` debe llevar solo la hoja (el script envía solo la hoja) o toda la ruta.

@@ -645,7 +645,8 @@ class CatalogLoader:
 
         skus = []
         for sku in product["skus"]:
-            sku_images = [_image_id(image_urls[u]) for u in sku["image_urls"]] or [i["id"] for i in images]
+            # El SKU referencia sus imágenes por URL completa de vtexassets, no por id
+            sku_images = [image_urls[u] for u in sku["image_urls"]] or [i["url"] for i in images]
             body_sku: Dict[str, Any] = {
                 "name": sku["name"],
                 "externalId": sku["external_id"],
