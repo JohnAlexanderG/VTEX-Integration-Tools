@@ -6,7 +6,7 @@ Utilidades de autenticación:
 """
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 from jose import jwt
@@ -32,12 +32,36 @@ def hash_password(password: str) -> str:
 
 # ─── JWT ──────────────────────────────────────────────────────────────────────
 
-def create_access_token(user_id: int, tenant_id: int, role: str) -> str:
+SELECTION_TOKEN_TYPE   = "account_select"
+SELECTION_EXPIRE_MIN   = 10
+
+
+def create_access_token(
+    user_id: int,
+    tenant_id: int,
+    role: str,
+    accounts: Optional[List[int]] = None,
+) -> str:
+    """
+    `accounts` = user_ids (mismo email) que validaron la contraseña en el login;
+    permite cambiar de cuenta sin volver a pedirla.
+    """
     payload = {
         "user_id":   user_id,
         "tenant_id": tenant_id,
         "role":      role,
+        "acct":      accounts or [user_id],
         "exp":       datetime.utcnow() + timedelta(minutes=EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_selection_token(user_ids: List[int]) -> str:
+    """Token de corta duración para elegir cuenta tras un login con varias cuentas."""
+    payload = {
+        "type":     SELECTION_TOKEN_TYPE,
+        "user_ids": user_ids,
+        "exp":      datetime.utcnow() + timedelta(minutes=SELECTION_EXPIRE_MIN),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 

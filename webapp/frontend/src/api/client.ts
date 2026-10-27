@@ -1,4 +1,5 @@
 import type { AccessCatalog, Config, Job, PermissionSet, TenantAccess, Tool } from '../types'
+import type { AuthUser } from '../context/AuthContext'
 
 const BASE = '/api'
 
@@ -280,7 +281,7 @@ export async function fetchUsers(): Promise<ApiUser[]> {
 export async function createUser(payload: {
   username:  string
   password:  string
-  email?:    string
+  email:     string
   role:      string
   tenant_id?: number
 }): Promise<void> {
@@ -320,6 +321,65 @@ export async function changePassword(currentPassword: string, newPassword: strin
     const err = await res.json().catch(() => ({ error: 'Error al cambiar contraseña' }))
     throw new Error(err.error)
   }
+}
+
+// ─── Account selection (login con email) ────────────────────────────────────
+
+export interface AccountSummary {
+  user_id:     number
+  username:    string
+  role:        string
+  tenant_id:   number
+  tenant_slug: string
+  tenant_name: string
+}
+
+export type LoginResponse =
+  | { access_token: string; token_type: string; user: AuthUser }
+  | { requires_account_selection: true; selection_token: string; accounts: AccountSummary[] }
+
+/** Público (sin token): un 401 aquí es "credenciales incorrectas", no sesión expirada. */
+export async function loginWithEmail(email: string, password: string): Promise<LoginResponse> {
+  const res = await fetch('/auth/login', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ email, password }),
+  })
+  const data = await res.json().catch(() => ({ error: 'Error de servidor' }))
+  if (!res.ok) throw new Error(data.error || 'Credenciales incorrectas')
+  return data
+}
+
+export async function selectAccount(
+  selectionToken: string,
+  userId: number,
+): Promise<{ access_token: string; user: AuthUser }> {
+  const res = await fetch('/auth/select-account', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ selection_token: selectionToken, user_id: userId }),
+  })
+  const data = await res.json().catch(() => ({ error: 'Error de servidor' }))
+  if (!res.ok) throw new Error(data.error || 'No se pudo seleccionar la cuenta')
+  return data
+}
+
+export async function fetchMyAccounts(): Promise<AccountSummary[]> {
+  const res = await apiFetch('/auth/accounts')
+  if (!res.ok) throw new Error('Failed to fetch accounts')
+  const data = await res.json()
+  return data.accounts
+}
+
+export async function switchAccount(userId: number): Promise<{ access_token: string; user: AuthUser }> {
+  const res = await apiFetch('/auth/switch-account', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ user_id: userId }),
+  })
+  const data = await res.json().catch(() => ({ error: 'Error de servidor' }))
+  if (!res.ok) throw new Error(data.error || 'No se pudo cambiar de cuenta')
+  return data
 }
 
 // ─── Tenants API ─────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, Users as UsersIcon } from 'lucide-react'
+import { UserPlus, RefreshCw, Shield, ShieldCheck, User as UserIcon, Users as UsersIcon, Pencil, KeyRound } from 'lucide-react'
 import { fetchTenants, fetchUsers, createUser, updateUser, type ApiTenant, type ApiUser } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -11,6 +11,7 @@ import {
   EmptyState,
   Field,
   Input,
+  Modal,
   PageHeader,
   Select,
   Skeleton,
@@ -18,21 +19,9 @@ import {
   cn,
   useToast,
 } from '../components/ui'
-import type { BadgeTone } from '../components/ui'
+import { ROLE_LABELS, ROLE_TONES } from '../lib/roles'
 
 type RoleFilter = 'all' | 'admin' | 'operator'
-
-const ROLE_LABELS: Record<string, string> = {
-  superadmin: 'Super Admin',
-  admin:      'Admin',
-  operator:   'Operador',
-}
-
-const ROLE_TONES: Record<string, BadgeTone> = {
-  superadmin: 'accent',
-  admin:      'info',
-  operator:   'neutral',
-}
 
 export default function Users() {
   const { user: me, isSuperAdmin, hasSectionAccess } = useAuth()
@@ -56,6 +45,19 @@ export default function Users() {
   const [newRole,     setNewRole]     = useState('operator')
   const [newTenantId, setNewTenantId] = useState('')
   const [createError, setCreateError] = useState('')
+
+  // Edición de email (el email es el identificador de login)
+  const [emailTarget, setEmailTarget] = useState<ApiUser | null>(null)
+  const [emailValue,  setEmailValue]  = useState('')
+  const [emailError,  setEmailError]  = useState('')
+  const [emailSaving, setEmailSaving] = useState(false)
+
+  // Cambio de contraseña de otro usuario (admin de su tenant / superadmin)
+  const [passwordTarget,  setPasswordTarget]  = useState<ApiUser | null>(null)
+  const [passwordValue,   setPasswordValue]   = useState('')
+  const [passwordConfirm, setPasswordConfirm] = useState('')
+  const [passwordError,   setPasswordError]   = useState('')
+  const [passwordSaving,  setPasswordSaving]  = useState(false)
 
   async function load() {
     if (!usersAllowed) {
@@ -89,7 +91,7 @@ export default function Users() {
       await createUser({
         username: newUsername,
         password: newPassword,
-        email: newEmail || undefined,
+        email: newEmail,
         role: newRole,
         tenant_id: isSuperAdmin && newTenantId ? Number(newTenantId) : undefined,
       })
@@ -127,6 +129,60 @@ export default function Users() {
       toast.error(e.message ?? 'No se pudo mover el usuario')
     } finally {
       setMovingUserId(null)
+    }
+  }
+
+  function openEmailEditor(u: ApiUser) {
+    setEmailTarget(u)
+    setEmailValue(u.email ?? '')
+    setEmailError('')
+  }
+
+  async function handleEmailSave(e: FormEvent) {
+    e.preventDefault()
+    if (!emailTarget) return
+    setEmailError('')
+    setEmailSaving(true)
+    try {
+      await updateUser(emailTarget.id, { email: emailValue })
+      setEmailTarget(null)
+      toast.success('Email actualizado')
+      await load()
+    } catch (e: any) {
+      setEmailError(e.message ?? 'No se pudo actualizar el email')
+    } finally {
+      setEmailSaving(false)
+    }
+  }
+
+  function openPasswordEditor(u: ApiUser) {
+    setPasswordTarget(u)
+    setPasswordValue('')
+    setPasswordConfirm('')
+    setPasswordError('')
+  }
+
+  async function handlePasswordSave(e: FormEvent) {
+    e.preventDefault()
+    if (!passwordTarget) return
+    if (passwordValue.length < 8) {
+      setPasswordError('La contraseña debe tener al menos 8 caracteres')
+      return
+    }
+    if (passwordValue !== passwordConfirm) {
+      setPasswordError('Las contraseñas no coinciden')
+      return
+    }
+    setPasswordError('')
+    setPasswordSaving(true)
+    try {
+      await updateUser(passwordTarget.id, { password: passwordValue })
+      setPasswordTarget(null)
+      toast.success(`Contraseña de ${passwordTarget.username} actualizada`)
+    } catch (e: any) {
+      setPasswordError(e.message ?? 'No se pudo cambiar la contraseña')
+    } finally {
+      setPasswordSaving(false)
     }
   }
 
@@ -172,10 +228,10 @@ export default function Users() {
                 placeholder="••••••••"
               />
             </Field>
-            <Field label="Email" htmlFor="new-email">
+            <Field label="Email" htmlFor="new-email" required help="Se usa para iniciar sesión">
               <Input
                 id="new-email"
-                type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required
                 placeholder="correo@ejemplo.com"
               />
             </Field>
@@ -280,7 +336,29 @@ export default function Users() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 mt-0.5">
-                    {u.email && <span className="text-xs text-ink-4">{u.email}</span>}
+                    {u.email ? (
+                      <span className="text-xs text-ink-4">{u.email}</span>
+                    ) : (
+                      <Badge tone="warning">Sin email — no puede iniciar sesión</Badge>
+                    )}
+                    <button
+                      onClick={() => openEmailEditor(u)}
+                      title="Editar email"
+                      aria-label={`Editar email de ${u.username}`}
+                      className="p-1 text-ink-4 hover:text-ink-1 rounded"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    {!(u.role === 'superadmin' && !isSuperAdmin) && (
+                      <button
+                        onClick={() => openPasswordEditor(u)}
+                        title="Cambiar contraseña"
+                        aria-label={`Cambiar contraseña de ${u.username}`}
+                        className="p-1 text-ink-4 hover:text-ink-1 rounded"
+                      >
+                        <KeyRound size={12} />
+                      </button>
+                    )}
                     {isSuperAdmin && (
                       <span className="text-xs text-ink-4">{u.tenant_name}</span>
                     )}
@@ -320,6 +398,67 @@ export default function Users() {
           })}
         </div>
       )}
+
+      <Modal
+        open={emailTarget !== null}
+        onClose={() => { if (!emailSaving) setEmailTarget(null) }}
+        title={`Email de ${emailTarget?.username ?? ''}`}
+        size="sm"
+      >
+        <form onSubmit={handleEmailSave} className="space-y-4">
+          <Field label="Email" htmlFor="edit-email" required help="Se usa para iniciar sesión">
+            <Input
+              id="edit-email"
+              type="email" value={emailValue} onChange={e => setEmailValue(e.target.value)} required
+              placeholder="correo@ejemplo.com"
+            />
+          </Field>
+          {emailError && <Alert tone="error">{emailError}</Alert>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setEmailTarget(null)} disabled={emailSaving}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={emailSaving}>Guardar</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={passwordTarget !== null}
+        onClose={() => { if (!passwordSaving) setPasswordTarget(null) }}
+        title={`Contraseña de ${passwordTarget?.username ?? ''}`}
+        size="sm"
+      >
+        <form onSubmit={handlePasswordSave} className="space-y-4">
+          {passwordTarget?.email && (
+            <p className="text-xs text-ink-4">
+              Solo cambia esta cuenta ({passwordTarget.tenant_name}). Para ver varias cuentas con{' '}
+              {passwordTarget.email} al iniciar sesión, usa la misma contraseña en todas.
+            </p>
+          )}
+          <Field label="Nueva contraseña" htmlFor="reset-password" required help="Mínimo 8 caracteres">
+            <Input
+              id="reset-password"
+              type="password" value={passwordValue} onChange={e => setPasswordValue(e.target.value)} required
+              autoComplete="new-password" placeholder="••••••••"
+            />
+          </Field>
+          <Field label="Confirmar contraseña" htmlFor="reset-password-confirm" required>
+            <Input
+              id="reset-password-confirm"
+              type="password" value={passwordConfirm} onChange={e => setPasswordConfirm(e.target.value)} required
+              autoComplete="new-password" placeholder="••••••••"
+            />
+          </Field>
+          {passwordError && <Alert tone="error">{passwordError}</Alert>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPasswordTarget(null)} disabled={passwordSaving}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={passwordSaving}>Guardar</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
