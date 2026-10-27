@@ -2321,6 +2321,20 @@ async def create_user(
     return {"ok": True, "id": new_user.id}
 
 
+def _can_manage_credentials(current_user: User, target: User) -> bool:
+    """Superadmin: cualquiera. Admin: operadores de su tenant y él mismo (no otros admins)."""
+    if current_user.role == UserRole.superadmin:
+        return True
+    return target.role == UserRole.operator or target.id == current_user.id
+
+
+def _can_manage_user(current_user: User, target: User) -> bool:
+    """Activar/desactivar y cambiar rol. Superadmin: cualquiera. Admin: solo operadores (no a sí mismo)."""
+    if current_user.role == UserRole.superadmin:
+        return True
+    return target.role == UserRole.operator and target.id != current_user.id
+
+
 @app.put("/api/users/{user_id}")
 async def update_user(
     user_id: int,
@@ -2340,8 +2354,14 @@ async def update_user(
         return JSONResponse(status_code=403, content={"error": "Sin permisos"})
 
     if "is_active" in body:
+        if target.id == current_user.id:
+            return JSONResponse(status_code=400, content={"error": "No puedes desactivar tu propio usuario"})
+        if not _can_manage_user(current_user, target):
+            return JSONResponse(status_code=403, content={"error": "Solo puedes activar o desactivar operadores"})
         target.is_active = bool(body["is_active"])
     if "email" in body:
+        if not _can_manage_credentials(current_user, target):
+            return JSONResponse(status_code=403, content={"error": "Solo puedes editar el email de operadores o el tuyo"})
         new_email = _normalize_email(body["email"])
         if not new_email:
             return JSONResponse(status_code=400, content={"error": "El email es obligatorio"})
@@ -2351,6 +2371,10 @@ async def update_user(
             return JSONResponse(status_code=409, content={"error": "Ese email ya existe en esta cuenta"})
         target.email = new_email
     if "role" in body:
+        if target.id == current_user.id:
+            return JSONResponse(status_code=400, content={"error": "No puedes cambiar tu propio rol"})
+        if not _can_manage_user(current_user, target):
+            return JSONResponse(status_code=403, content={"error": "Solo puedes cambiar el rol de operadores"})
         try:
             new_role = UserRole(body["role"])
         except ValueError:
@@ -2387,8 +2411,11 @@ async def update_user(
             return JSONResponse(status_code=409, content={"error": "Ya existe un usuario con ese email en el tenant destino"})
         target.tenant_id = new_tenant_id
     if "password" in body and body["password"]:
-        if current_user.role == UserRole.admin and target.role == UserRole.superadmin:
-            return JSONResponse(status_code=403, content={"error": "No puedes cambiar la contraseña de un superadmin"})
+        # La propia se cambia en /auth/change-password, que exige la contraseña actual
+        if target.id == current_user.id and current_user.role != UserRole.superadmin:
+            return JSONResponse(status_code=400, content={"error": "Usa cambiar contraseña (requiere la actual)"})
+        if not _can_manage_credentials(current_user, target):
+            return JSONResponse(status_code=403, content={"error": "Solo puedes cambiar la contraseña de operadores"})
         if len(body["password"]) < 8:
             return JSONResponse(status_code=400, content={"error": "Contraseña muy corta"})
         target.hashed_password = hash_password(body["password"])
